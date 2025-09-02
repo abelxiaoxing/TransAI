@@ -1,0 +1,28 @@
+<RCC>
+    <qresource prefix="/">
+        <file>qml/main.qml</file>
+        <file>qtquickcontrols2.conf</file>
+        <file>qml/GRadioButton.qml</file>
+        <file>qml/SettingView.qml</file>
+        <file>qml/AppView.qml</file>
+        <file>res/language-solid.svg</file>
+        <file>qml/IconButton.qml</file>
+        <file>res/thumbtack_no.png</file>
+        <file>res/thumbtack_yes.png</file>
+        <file>res/logo/logo.icns</file>
+        <file>res/logo/logo.ico</file>
+        <file>res/logo/logo.png</file>
+        <file>qml/GTextEdit.qml</file>
+        <file>qml/GRadioGroup.qml</file>
+        <file>res/back1.png</file>
+        <file>res/back2.png</file>
+        <file>res/save1.png</file>
+        <file>res/save2.png</file>
+        <file>res/setting1.png</file>
+        <file>res/setting2.png</file>
+        
+        <file>res/tray.png</file>
+        <file>qml/GPopWindow.qml</file>
+        <file>res/icon.png</file>
+    </qresource>
+</RCC>
