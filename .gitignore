@@ -1,5 +1,5 @@
 build/
-.sepc-workflow/
+.spec-workflow/
 .claude/
 .DS_Store
 .vscode/
