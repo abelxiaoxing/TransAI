@@ -13,11 +13,13 @@
 #include <QByteArray>
 #include <QFile>
 #include "stdafx.h"
+#include "../src/theme/ThemeManager.h"
 
 #include <QStandardPaths>
 #include <QTextStream>
 #include <QDebug>
 #include <QDir>
+#include <QQuickWindow>
 
 class Setting : public QObject
 {
@@ -35,6 +37,27 @@ private:
     QString _configPath;
 };
 
+class ThemeController : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(ThemeManager::Theme currentTheme READ currentTheme WRITE setCurrentTheme NOTIFY currentThemeChanged)
+public:
+    explicit ThemeController(QObject *parent = nullptr);
+
+    ThemeManager::Theme currentTheme() const;
+    void setCurrentTheme(ThemeManager::Theme theme);
+
+    Q_INVOKABLE void applyThemeToWindow(QQuickWindow* window);
+    Q_INVOKABLE QColor getColor(const QString& colorName);
+
+signals:
+    void currentThemeChanged();
+
+private:
+    ThemeManager* _themeManager;
+    ThemeManager::Theme _currentTheme;
+};
+
 class Controller : public QObject
 {
     Q_OBJECT
@@ -45,6 +68,7 @@ class Controller : public QObject
     Q_PROPERTY_AUTO(QString,apiServer);
     Q_PROPERTY_AUTO(QString,apiKey);
     Q_PROPERTY_AUTO(QString,model);
+    Q_PROPERTY(ThemeController* themeController READ themeController CONSTANT)
 
 
 public:
@@ -52,6 +76,8 @@ public:
 
     Q_INVOKABLE void sendMessage(QString str, int mode);
     Q_INVOKABLE void abort();
+
+    ThemeController* themeController() const;
 
 signals:
 
@@ -66,6 +92,8 @@ private:
     std::tuple<QString, bool> _parseResponse(QByteArray &ba);
 
     QString _getError(QString &str);
+
+    ThemeController* _themeController;
 
 
 };

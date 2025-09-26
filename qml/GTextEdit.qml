@@ -3,11 +3,18 @@ import QtQuick.Controls
 
 Flickable {
     id: flick
-    
+
     property bool autoScroll:false
     property alias text: textedit.text
     property alias readOnly: textedit.readOnly
     property alias textedit: textedit
+
+    // 主题颜色定义
+    readonly property color foreground: "#D4D4D4"
+    readonly property color accentHover: "#5ED9C0"
+    readonly property color background: "#1E1E1E"
+    readonly property int fontSizeNormal: 14
+    readonly property int spacing: 8
 
 
     contentWidth: width;
@@ -37,12 +44,14 @@ Flickable {
     }
     TextEdit{
         id: textedit
-        padding: 10
+        padding: flick.spacing
         wrapMode: TextEdit.WrapAnywhere
         width:flick.width
-        font.pixelSize: 14
+        font.pixelSize: flick.fontSizeNormal
         selectByMouse:true
         selectByKeyboard:true
-        color:"green"
+        color:flick.foreground
+        selectionColor: flick.accentHover
+        selectedTextColor: flick.background
     }
 }

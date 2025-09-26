@@ -6,8 +6,18 @@ import Controller
 Item {
     signal backClicked;
 
-    
+
     property bool lock:false
+
+    // 主题颜色定义
+    readonly property color backgroundColor: "#1E1E1E"
+    readonly property color foreground: "#D4D4D4"
+    readonly property color accent: "#4EC9B0"
+    readonly property color border: "#3E3E42"
+    readonly property color backgroundSecondary: "#252526"
+    readonly property int fontSizeNormal: 14
+    readonly property int fontSizeLarge: 16
+    readonly property real radius: 8
     
 
     function reload(){
@@ -74,7 +84,7 @@ Item {
         anchors.topMargin: 10
         text:"API Server"
         font.bold: true
-        color:"green"
+        color: accent
     }
 
     Item {
@@ -85,9 +95,9 @@ Item {
         anchors.topMargin: 10
         height:30
         Rectangle {
-            color: "#E6E7E7"
+            color: backgroundSecondary
             anchors.fill: parent
-            radius: 5
+            radius: radius
         }
 
         TextInput {
@@ -95,6 +105,8 @@ Item {
             anchors.fill: parent
             padding:7
             text: "https://api.openai.com"
+            color: foreground
+            font.pixelSize: fontSizeNormal
             onTextChanged: {
                 saveConfig()
             }
@@ -108,7 +120,7 @@ Item {
         anchors.topMargin: 20
         text:"API Key"
         font.bold: true
-        color:"green"
+        color: accent
     }
 
     ScrollView {
@@ -129,16 +141,16 @@ Item {
         TextArea{
             id:keyInput
             height:80
-            font.pixelSize: 14
+            font.pixelSize: fontSizeNormal
             y:20
+            color: foreground
             wrapMode: Text.WrapAnywhere
             onTextChanged:{
                 saveConfig()
             }
             background: Rectangle{
-                color: "#E6E7E7"
-                radius: 5
-
+                color: backgroundSecondary
+                radius: radius
             }
 
         }
@@ -151,7 +163,7 @@ Item {
         anchors.topMargin: 20
         text:"Model"
         font.bold: true
-        color:"green"
+        color: accent
     }
 
     Item {
@@ -162,9 +174,9 @@ Item {
         anchors.topMargin: 10
         height:30
         Rectangle {
-            color: "#E6E7E7"
+            color: backgroundSecondary
             anchors.fill: parent
-            radius: 5
+            radius: radius
         }
 
         TextInput {
@@ -172,6 +184,8 @@ Item {
             anchors.fill: parent
             padding:7
             text: "gpt-3.5-turbo"
+            color: foreground
+            font.pixelSize: fontSizeNormal
             onTextChanged: {
                 saveConfig()
             }
@@ -185,7 +199,7 @@ Item {
         anchors.topMargin: 20
         text:"Shortcut"
         font.bold: true
-        color:"green"
+        color: accent
     }
 
     Item {
@@ -197,11 +211,11 @@ Item {
         height:30
         Rectangle {
             id:shortcutRect
-            color: "#E6E7E7"
+            color: backgroundSecondary
             anchors.fill: parent
-            radius: 5
+            radius: radius
             border.width:1
-            border.color: color
+            border.color: border
             onActiveFocusChanged: {
             }
 
@@ -221,6 +235,8 @@ Item {
                 id:shortcutText
                 anchors.centerIn: parent
                 text:""
+                color: foreground
+                font.pixelSize: fontSizeNormal
                 onTextChanged: {
                     saveConfig()
                 }
@@ -232,7 +248,7 @@ Item {
                 }
 
                 shortcutText.text = ""
-                var vaild = false
+                var valid = false
                 var haveCtrl = false
 
 
@@ -263,33 +279,33 @@ Item {
 
                 if(shortCutText.text.length > 0){
                     switch(event.key){
-                        case Qt.Key_F1: shortcutText.text = "F1"; vaild = true; break;
-                        case Qt.Key_F2: shortcutText.text = "F2";vaild = true; break;
-                        case Qt.Key_F3: shortcutText.text = "F3";vaild = true;  break;
-                        case Qt.Key_F4: shortcutText.text = "F4"; vaild = true; break;
-                        case Qt.Key_F5: shortcutText.text = "F5"; vaild = true; break;
-                        case Qt.Key_F6: shortcutText.text = "F6";vaild = true;  break;
-                        case Qt.Key_F7: shortcutText.text = "F7"; vaild = true; break;
-                        case Qt.Key_F8: shortcutText.text = "F8"; vaild = true; break;
-                        case Qt.Key_F9: shortcutText.text = "F9"; vaild = true; break;
-                        case Qt.Key_F10: shortcutText.text = "F10"; vaild = true; break;
-                        case Qt.Key_F11: shortcutText.text = "F11"; vaild = true; break;
-                        case Qt.Key_F12: shortcutText.text = "F12"; vaild = true; break;
+                        case Qt.Key_F1: shortcutText.text = "F1"; valid = true; break;
+                        case Qt.Key_F2: shortcutText.text = "F2";valid = true; break;
+                        case Qt.Key_F3: shortcutText.text = "F3";valid = true;  break;
+                        case Qt.Key_F4: shortcutText.text = "F4"; valid = true; break;
+                        case Qt.Key_F5: shortcutText.text = "F5"; valid = true; break;
+                        case Qt.Key_F6: shortcutText.text = "F6";valid = true;  break;
+                        case Qt.Key_F7: shortcutText.text = "F7"; valid = true; break;
+                        case Qt.Key_F8: shortcutText.text = "F8"; valid = true; break;
+                        case Qt.Key_F9: shortcutText.text = "F9"; valid = true; break;
+                        case Qt.Key_F10: shortcutText.text = "F10"; valid = true; break;
+                        case Qt.Key_F11: shortcutText.text = "F11"; valid = true; break;
+                        case Qt.Key_F12: shortcutText.text = "F12"; valid = true; break;
                     }
                     if(event.key >= Qt.Key_0  && event.key <= Qt.Key_9 ){
                         if(haveCtrl){
                             shortcutText.text += String.fromCharCode(event.key)
-                            vaild = true
+                            valid = true
                         }
                     }else if(event.key >= Qt.Key_A  && event.key <= Qt.Key_Z ){
                         if(haveCtrl){
                             shortcutText.text += String.fromCharCode(event.key)
-                            vaild = true
+                            valid = true
                         }
                     }
                 }
 
-                if(vaild){
+                if(valid){
                     shortcutRect.focus = false;
                     if(shortcutText.text.length > 0){
                         if(hotkey.setShortcut(shortcutText.text) == false){
@@ -323,7 +339,7 @@ Item {
         anchors.topMargin: 20
         text:"About"
         font.bold: true
-        color:"green"
+        color: accent
     }
 
 
@@ -354,7 +370,7 @@ Item {
             text:"Current version:" +  Qt.application.version
             font.bold: true
             font.pixelSize: 12
-            color:"green"
+            color: accent
         }
         Rectangle{
             anchors.horizontalCenter: parent.horizontalCenter
@@ -366,8 +382,8 @@ Item {
                 font.capitalization: Font.MixedCase
                 height: 40
                 anchors.horizontalCenter: parent.horizontalCenter
-                Material.background: Material.Green
-                Material.foreground :(Qt.platform.os === "linux")?"black":"white" //linux can't display button use software render
+                Material.background: accent
+                Material.foreground :(Qt.platform.os === "linux")?backgroundColor:foreground //linux can't display button use software render
                 onClicked: {
                     updater.check()
                 }
@@ -397,9 +413,13 @@ Item {
             visible:!updater.isRequesting
             text:updater.releaseNote
             readOnly: true
+            color: foreground
+            font.pixelSize: fontSizeNormal
             wrapMode: Text.WrapAnywhere
             y:30
             background: Rectangle {
+                color: backgroundSecondary
+                radius: radius
             }
         }
     }

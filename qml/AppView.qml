@@ -12,6 +12,20 @@ Item {
     property bool pinned: false
     property alias inputText: inputArea.text
     signal settingClicked;
+
+    // 主题颜色定义
+    readonly property color backgroundColor: "#1E1E1E"
+    readonly property color foreground: "#D4D4D4"
+    readonly property color accent: "#4EC9B0"
+    readonly property color accentHover: "#5ED9C0"
+    readonly property color border: "#3E3E42"
+    readonly property color backgroundSecondary: "#252526"
+    readonly property color error: "#F48771"
+    readonly property color success: "#4EC9B0"
+    readonly property color warning: "#FFD166"
+    readonly property int fontSizeNormal: 14
+    readonly property int fontSizeLarge: 16
+    readonly property real radius: 8
     function startTrans(){
         if(inputArea.text.length > 0 && transBtn.visible)
             transBtn.clicked()
@@ -40,7 +54,8 @@ Item {
             anchors.left: parent.left
             anchors.bottom: parent.bottom
             font.bold: true
-            color: "green"
+            color: root.foreground
+            font.pixelSize: root.fontSizeLarge
         }
 
 
@@ -68,10 +83,10 @@ Item {
         anchors.right: parent.right
         clip:true
         Rectangle {
-            radius: 6
-            color: "transparent"
+            radius: root.radius
+            color: root.backgroundSecondary
             border.width : 1
-            border.color: "green"
+            border.color: root.border
             anchors.fill: parent
         }
         GTextEdit{
@@ -133,8 +148,9 @@ Item {
         anchors.left: inputItem.left
         anchors.top:inputItem.bottom
         font.bold: true
-        color:"green"
+        color:root.accent
         anchors.topMargin: 40
+        font.pixelSize: root.fontSizeNormal
 
     }
 
@@ -164,8 +180,19 @@ Item {
             api.sendMessage(inputArea.text, getMode())
         }
         height:50
-        Material.background: Material.Green
-        Material.foreground :(Qt.platform.os === "linux")?"black":"white" //linux can't display button use software render
+        background: Rectangle {
+            color: root.accent
+            radius: root.radius
+            border.width: 1
+            border.color: root.accentHover
+        }
+        contentItem: Text {
+            text: transBtn.text
+            color: "white"
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            font.pixelSize: root.fontSizeNormal
+        }
     }
     BusyIndicator {
         anchors.verticalCenter: stopBtn.verticalCenter
@@ -186,8 +213,20 @@ Item {
         onClicked: {
             api.abort()
         }
-        Material.background: Material.Green
-        Material.foreground :(Qt.platform.os === "linux")?"black":"white" //linux can't display button use software render
+        height:50
+        background: Rectangle {
+            color: root.error
+            radius: root.radius
+            border.width: 1
+            border.color: Qt.darker(root.error, 1.2)
+        }
+        contentItem: Text {
+            text: stopBtn.text
+            color: "white"
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            font.pixelSize: root.fontSizeNormal
+        }
     }
 
     ComboBox {
@@ -201,6 +240,85 @@ Item {
             api.transToLang = currentText
         }
         height:40
+
+        // 应用主题样式
+        background: Rectangle {
+            color: root.backgroundSecondary
+            radius: root.radius
+            border.width: 1
+            border.color: root.border
+        }
+
+        contentItem: Text {
+            text: langSelector.currentText
+            color: root.foreground
+            horizontalAlignment: Text.AlignLeft
+            verticalAlignment: Text.AlignVCenter
+            leftPadding: 10
+            rightPadding: langSelector.indicator.width + 10
+            font.pixelSize: root.fontSizeNormal
+        }
+
+        delegate: ItemDelegate {
+            width: langSelector.width
+            height: 40
+            contentItem: Text {
+                text: modelData
+                color: root.foreground
+                font.pixelSize: root.fontSizeNormal
+                elide: Text.ElideRight
+                horizontalAlignment: Text.AlignLeft
+                verticalAlignment: Text.AlignVCenter
+                leftPadding: 10
+                rightPadding: 10
+            }
+            background: Rectangle {
+                color: langSelector.highlightedIndex === index ? root.accentHover : "transparent"
+                radius: root.radius
+            }
+        }
+
+        indicator: Canvas {
+            id: canvas
+            x: langSelector.width - width - 10
+            y: (langSelector.height - height) / 2
+            width: 12
+            height: 8
+            contextType: "2d"
+
+            onPaint: {
+                context.reset()
+                context.moveTo(0, 0)
+                context.lineTo(width, 0)
+                context.lineTo(width / 2, height)
+                context.closePath()
+                context.fillStyle = root.foreground
+                context.fill()
+            }
+        }
+
+        popup: Popup {
+            y: langSelector.height
+            width: langSelector.width
+            implicitHeight: contentItem.implicitHeight
+            padding: 1
+
+            contentItem: ListView {
+                clip: true
+                implicitHeight: contentHeight
+                model: langSelector.delegateModel
+                currentIndex: langSelector.highlightedIndex
+
+                ScrollIndicator.vertical: ScrollIndicator { }
+            }
+
+            background: Rectangle {
+                color: root.backgroundSecondary
+                radius: root.radius
+                border.color: root.border
+                border.width: 1
+            }
+        }
     }
 
     APIController{

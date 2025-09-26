@@ -1,4 +1,5 @@
 build/
+.bmad-core/
 .spec-workflow/
 .claude/
 .DS_Store

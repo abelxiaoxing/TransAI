@@ -1,9 +1,14 @@
 import QtQuick
 import QtQuick.Controls
+import "."
 Item {
     id: root
     width: 100
     height:100
+
+    // 主题颜色属性
+    property color backgroundColor: "transparent"
+    property real opacityValue: root.enabled ? 1.0 : 0.5
     property url normalUrl      //常规状态下的图片路径
     property url hoveredUrl     //悬浮
     property url pressedUrl     //按下
@@ -41,7 +46,7 @@ Item {
         sourceSize.height: root.height * 2
         //默认按鼠标状态选取不同的图片
         source: getSource()
-
+        opacity: root.opacityValue
     }
 
     MouseArea {
@@ -53,7 +58,10 @@ Item {
             if(checkable)
                 checked = !checked
         }
-
+        onEntered: root.opacityValue = 0.8
+        onExited: root.opacityValue = 1.0
+        onPressed: root.opacityValue = 0.6
+        onReleased: root.opacityValue = area.containsMouse ? 0.8 : 1.0
 
         cursorShape: Qt.PointingHandCursor
         preventStealing: true

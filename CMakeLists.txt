@@ -27,12 +27,14 @@ set(HEADERS
     src/stdafx.h
     src/updater.h
     src/hotkey.h
+    src/theme/ThemeManager.h
 )
 set(SOURCES
     src/main.cpp
     src/controller.cpp
     src/updater.cpp
     src/hotkey.cpp
+    src/theme/ThemeManager.cpp
 )
 
 set(RESOURCES

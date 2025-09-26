@@ -85,6 +85,7 @@ Controller::Controller(QObject *parent)
     _apiKey = "";
     _model = "";
     networkManager = new QNetworkAccessManager(this);
+    _themeController = new ThemeController(this);
 
 }
 
@@ -246,4 +247,40 @@ void Controller::abort()
         reply->abort();
     } catch (...) {
     }
+}
+
+// ThemeController Implementation
+ThemeController::ThemeController(QObject *parent) : QObject(parent)
+{
+    _themeManager = new ThemeManager(this);
+    _currentTheme = _themeManager->currentTheme();
+}
+
+ThemeManager::Theme ThemeController::currentTheme() const
+{
+    return _currentTheme;
+}
+
+void ThemeController::setCurrentTheme(ThemeManager::Theme theme)
+{
+    if (_currentTheme != theme) {
+        _currentTheme = theme;
+        _themeManager->setCurrentTheme(theme);
+        emit currentThemeChanged();
+    }
+}
+
+void ThemeController::applyThemeToWindow(QQuickWindow* window)
+{
+    _themeManager->applyTheme(window);
+}
+
+QColor ThemeController::getColor(const QString& colorName)
+{
+    return _themeManager->getColor(colorName);
+}
+
+ThemeController* Controller::themeController() const
+{
+    return _themeController;
 }

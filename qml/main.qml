@@ -18,6 +18,9 @@ Window {
     minimumWidth:400
     title: qsTr("GPT Translator")
 
+    // 应用主题样式
+    color: "#1E1E1E"
+
     property Component  popComponent: null
     property QtObject  popW: null
 
