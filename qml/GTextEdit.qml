@@ -42,6 +42,28 @@ Flickable {
         if(autoScroll)
             flick.scrollToBottom()
     }
+
+    // 全局鼠标区域解决焦点问题
+    MouseArea {
+        anchors.fill: parent
+        propagateComposedEvents: true
+
+        onClicked: {
+            if (mouse.button === Qt.LeftButton) {
+                // 计算点击位置对应的文本位置，处理空文本情况
+                var pos = textedit.length > 0 ?
+                    textedit.positionAt(mouse.x, mouse.y + flick.contentY) : 0;
+
+                // 设置焦点和光标位置
+                textedit.forceActiveFocus();
+                textedit.cursorPosition = pos;
+                mouse.accepted = true;
+            } else {
+                mouse.accepted = false;
+            }
+        }
+    }
+
     TextEdit{
         id: textedit
         padding: flick.spacing
