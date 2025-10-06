@@ -27,6 +27,34 @@ Window {
 
 //    flags:Qt.Window | Qt.FramelessWindowHint | Qt.WindowTitleHint | Qt.WindowSystemMenuHint
 
+    // 确保窗口位置在屏幕可见范围内的函数
+    function ensureWindowVisible() {
+        var screenWidth = Screen.width;
+        var screenHeight = Screen.height;
+        var windowWidth = mainWindow.width;
+        var windowHeight = mainWindow.height;
+
+        // 确保窗口不会超出屏幕右边界
+        if (mainWindow.x + windowWidth > screenWidth) {
+            mainWindow.x = screenWidth - windowWidth;
+        }
+
+        // 确保窗口不会超出屏幕下边界
+        if (mainWindow.y + windowHeight > screenHeight) {
+            mainWindow.y = screenHeight - windowHeight;
+        }
+
+        // 确保窗口不会超出屏幕左边界
+        if (mainWindow.x < 0) {
+            mainWindow.x = 0;
+        }
+
+        // 确保窗口不会超出屏幕上边界
+        if (mainWindow.y < 0) {
+            mainWindow.y = 0;
+        }
+    }
+
     function popWindow(t, pos){
 
         if(popComponent !== null){
@@ -63,6 +91,8 @@ Window {
            mainWindow.raise()
            mainWindow.requestActivate()
 
+           // 确保窗口在可见位置
+           ensureWindowVisible()
        }
 
     }
@@ -91,15 +121,43 @@ Window {
            mainWindow.x += delta.x;
            mainWindow.y += delta.y;
        }
+
+       onReleased: {
+           // 拖拽结束时确保窗口在可见范围内
+           ensureWindowVisible();
+       }
    }
 
+  
+    // 窗口关闭动画
+    SequentialAnimation {
+        id: closeWindowAnimation
+
+        NumberAnimation {
+            target: mainWindow
+            property: "opacity"
+            to: 0
+            duration: 250
+            easing.type: Easing.OutQuad
+        }
+
+        ScriptAction {
+            script: {
+                mainWindow.visible = false;
+                mainWindow.opacity = 1; // 重置透明度
+            }
+        }
+    }
+
     onActiveChanged: {
-//        if(active){
-//            mainWindow.visible = true
-//        }else{
-//            if(!appView.pinned)
-//            mainWindow.visible = false
-//        }
+        if(active){
+            mainWindow.visible = true
+        }else{
+            // 当窗口失去焦点且未置顶时，触发关闭动画
+            if(!appView.pinned){
+                closeWindowAnimation.start();
+            }
+        }
     }
 
 
@@ -137,6 +195,9 @@ Window {
                 mainWindow.show()
                 mainWindow.raise()
                 mainWindow.requestActivate()
+
+                // 确保窗口在可见位置
+                ensureWindowVisible()
 
 //                mainWindow.x = trayIcon.geometry.x - mainWindow.width/2
 //                mainWindow.y = trayIcon.geometry.y + 50
