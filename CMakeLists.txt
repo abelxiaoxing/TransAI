@@ -16,7 +16,7 @@ message(STATUS "APP_VERSION: ${APP_VERSION}")
 if (CMAKE_SYSTEM_NAME MATCHES "Linux")
     set(Qt6_DIR "/home/abelxiaoxing/Qt/6.9.2/gcc_64/lib/cmake/Qt6")
 endif()
-find_package(Qt6 REQUIRED COMPONENTS Quick)
+find_package(Qt6 REQUIRED COMPONENTS Quick Widgets)
 if(Qt6_VERSION_MAJOR EQUAL 6 AND Qt6_VERSION_MINOR GREATER_EQUAL 5)
     qt6_policy(SET QTP0001 OLD)
 endif()
@@ -101,6 +101,7 @@ IF (CMAKE_SYSTEM_NAME MATCHES "Windows")
     target_link_libraries(TransAI
         PRIVATE
         Qt6::Quick
+        Qt6::Widgets
 
         qhotkey
         user32
@@ -109,6 +110,7 @@ IF (CMAKE_SYSTEM_NAME MATCHES "Windows")
     target_link_libraries(TransAI
         PRIVATE
         Qt6::Quick
+        Qt6::Widgets
 
         qhotkey
         user32
@@ -120,6 +122,7 @@ ELSEIF (CMAKE_SYSTEM_NAME MATCHES "Linux")
     target_link_libraries(TransAI
         PRIVATE
         Qt6::Quick
+        Qt6::Widgets
 
         qhotkey
         ${X11_LIBRARIES}
@@ -129,6 +132,7 @@ ELSEIF (CMAKE_SYSTEM_NAME MATCHES "Darwin")
     target_link_libraries(TransAI
         PRIVATE
         Qt6::Quick
+        Qt6::Widgets
 
         qhotkey
         ${APP_SERVICES_LIBRARY}

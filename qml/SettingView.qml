@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Controls.Material
 import Updater
 import Controller
 
@@ -383,7 +384,7 @@ Item {
                 height: 40
                 anchors.horizontalCenter: parent.horizontalCenter
                 Material.background: accent
-                Material.foreground :(Qt.platform.os === "linux")?backgroundColor:foreground //linux can't display button use software render
+                Material.foreground: (Qt.platform.os === "linux") ? backgroundColor : foreground //linux can't display button use software render
                 onClicked: {
                     updater.check()
                 }

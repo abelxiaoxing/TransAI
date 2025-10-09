@@ -1,4 +1,4 @@
-#include <QGuiApplication>
+#include <QApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QLocale>
@@ -29,7 +29,7 @@ int main(int argc, char *argv[])
         qputenv("QT_QUICK_BACKEND","software");//Failed to build graphics pipeline state under linux, need to be software
     #endif
 
-    QGuiApplication app(argc, argv);
+    QApplication app(argc, argv);
     app.setWindowIcon(QIcon("qrc:///res/logo/logo.ico"));
 
 
