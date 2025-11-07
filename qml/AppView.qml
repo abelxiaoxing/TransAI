@@ -38,6 +38,10 @@ Item {
     Component.onCompleted: {
         inputAni.to = root.height /3
         inputAni.start()
+        // 应用启动时默认置顶
+        mainWindow.flags = mainWindow.flags | Qt.WindowStaysOnTopHint
+        tItem.state = "yes"
+        pinned = true
     }
 
     Item{

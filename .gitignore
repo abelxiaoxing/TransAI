@@ -4,3 +4,4 @@ build/
 .claude/
 .DS_Store
 .vscode/
+*CLAUDE.md

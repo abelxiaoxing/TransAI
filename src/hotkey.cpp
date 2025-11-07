@@ -12,20 +12,50 @@
 #include <X11/Xlib.h>
 #include <X11/keysym.h>
 #include <unistd.h>
+#include <QStandardPaths>
 #endif
 
 
 Hotkey::Hotkey(QObject *parent)
     : QObject{parent}
+    , _hotkey(nullptr)
 {
+    // 检测是否在 Wayland 环境下运行
+    QString platformName = QGuiApplication::platformName();
 
+    bool isWayland = platformName.contains("wayland", Qt::CaseInsensitive);
+
+    if (isWayland) {
+        qWarning() << "Warning: Running on Wayland. Global hotkeys may not be available.";
+        qWarning() << "         Platform:" << platformName;
+        qWarning() << "         To use X11, set: export QT_QPA_PLATFORM=xcb";
+    }
 }
 
 void Hotkey::binding(QObject *obj)
 {
-    _hotkey = new QHotkey(QKeySequence(""), true, obj); //The hotkey will be automatically registered
-    qDebug() << "Is segistered:" << _hotkey->isRegistered();
+    // 再次检查 Wayland 环境
+    QString platformName = QGuiApplication::platformName();
 
+    bool isWayland = platformName.contains("wayland", Qt::CaseInsensitive);
+
+    if (isWayland) {
+        qWarning() << "Hotkey initialization skipped on Wayland.";
+        qWarning() << "         Platform:" << platformName;
+        qWarning() << "         To enable hotkeys, run with:";
+        qWarning() << "           QT_QPA_PLATFORM=xcb ./TransAI";
+        return;
+    }
+
+    // 只有在非 Wayland 环境下才初始化热键
+    _hotkey = new QHotkey(QKeySequence(""), true, obj);
+    qDebug() << "Is segistered:" << _hotkey->isRegistered();
+    qDebug() << "Platform:" << platformName;
+
+    // 检查热键是否成功注册
+    if (!_hotkey->isRegistered()) {
+        qWarning() << "Failed to register hotkey. This may be normal on some systems.";
+    }
 
     QObject::connect(_hotkey, &QHotkey::activated, obj, [&,this](){
         qDebug() << "Hotkey Activated ";

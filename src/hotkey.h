@@ -25,7 +25,12 @@ public:
     Q_INVOKABLE void binding(QObject * obj);
 
     Q_INVOKABLE bool setShortcut(QString str){
-        return _hotkey->setShortcut(QKeySequence(str), true);
+        if (_hotkey) {
+            return _hotkey->setShortcut(QKeySequence(str), true);
+        } else {
+            qWarning() << "Cannot set shortcut: Hotkey not initialized (possibly running on Wayland)";
+            return false;
+        }
     }
 
 
