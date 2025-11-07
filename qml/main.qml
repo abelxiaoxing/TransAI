@@ -168,9 +168,9 @@ Window {
         anchors.fill: parent
         focus: true
         Keys.onPressed:(event)=> {
-            if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_R ||
-               (event.modifiers & Qt.MetaModifier) && event.key === Qt.Key_R) {
-              // Command+R or Ctrl+R pressed
+            if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_Return ||
+               (event.modifiers & Qt.MetaModifier) && event.key === Qt.Key_Return) {
+              // Command+Enter or Ctrl+Enter pressed
             appView.startTrans()
             }
         }

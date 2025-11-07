@@ -177,7 +177,7 @@ Item {
         anchors.bottom: parent.bottom
         anchors.right:parent.right
         anchors.margins:10
-        text:(Qt.platform.os == "macos" || Qt.platform.os == "osx")?"Translate ⌘R":"Translate ^R"
+        text:(Qt.platform.os == "macos" || Qt.platform.os == "osx")?"Translate ⌘Enter":"Translate (Ctrl+Enter)"
         font.capitalization: Font.MixedCase
         enabled:inputArea.text.length > 0
         onClicked: {
