@@ -13,6 +13,7 @@
 #include <X11/keysym.h>
 #include <unistd.h>
 #include <QStandardPaths>
+#include <QThread>
 #endif
 
 
@@ -140,8 +141,27 @@ void Hotkey::binding(QObject *obj)
             // Use a timer to wait for the copy operation to complete
             QTimer::singleShot(300,  [this] {
                 QClipboard *clipboard = QGuiApplication::clipboard();
-                QString copiedText = clipboard->text();
+                
+                // 检查是否在Wayland环境下
+                QString platformName = QGuiApplication::platformName();
+                bool isWayland = platformName.contains("wayland", Qt::CaseInsensitive);
+                
+                QString copiedText;
+                if (isWayland) {
+                    // 在Wayland环境下尝试多次读取剪贴板
+                    for (int i = 0; i < 3; i++) {
+                        copiedText = clipboard->text();
+                        if (!copiedText.isEmpty()) {
+                            break;
+                        }
+                        QThread::msleep(100);
+                    }
+                } else {
+                    copiedText = clipboard->text();
+                }
+                
                 qDebug() << "Copied text:" << copiedText;
+                qDebug() << "Platform:" << platformName;
                 this->_selectedText = copiedText;
                 this->selectedTextChanged();
             });
