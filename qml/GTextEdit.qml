@@ -13,7 +13,7 @@ Flickable {
     readonly property color foreground: "#D4D4D4"
     readonly property color accentHover: "#5ED9C0"
     readonly property color background: "#1E1E1E"
-    readonly property int fontSizeNormal: 14
+    readonly property int fontSizeNormal: 18
     readonly property int spacing: 8
 
 

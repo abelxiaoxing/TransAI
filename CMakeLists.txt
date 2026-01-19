@@ -14,7 +14,19 @@ add_definitions(-DAPP_VERSION="${APP_VERSION}")
 message(STATUS "APP_VERSION: ${APP_VERSION}")
 
 if (CMAKE_SYSTEM_NAME MATCHES "Linux")
-    set(Qt6_DIR "/home/abelxiaoxing/Qt/6.9.2/gcc_64/lib/cmake/Qt6")
+    # 自动检测系统 Qt6 路径
+    execute_process(
+        COMMAND qmake -query QT_INSTALL_PREFIX
+        OUTPUT_VARIABLE SYSTEM_QT_PREFIX
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+    if(EXISTS "${SYSTEM_QT_PREFIX}/lib/cmake/Qt6")
+        set(Qt6_DIR "${SYSTEM_QT_PREFIX}/lib/cmake/Qt6")
+        message(STATUS "Using system Qt6: ${SYSTEM_QT_PREFIX}")
+    else()
+        set(Qt6_DIR "$ENV{HOME}/Qt/6.9.2/gcc_64/lib/cmake/Qt6")
+        message(STATUS "Using local Qt6: ${Qt6_DIR}")
+    endif()
 endif()
 find_package(Qt6 REQUIRED COMPONENTS Quick)
 if(Qt6_VERSION_MAJOR EQUAL 6 AND Qt6_VERSION_MINOR GREATER_EQUAL 5)
