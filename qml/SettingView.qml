@@ -32,10 +32,10 @@ Item {
     readonly property color borderActive: "#65F4D6"
     readonly property color error: "#FF7A90"
     readonly property color success: "#65F4D6"
-    readonly property int fontSizeSmall: 12
-    readonly property int fontSizeNormal: 14
-    readonly property int fontSizeLarge: 17
-    readonly property int fontSizeTitle: 24
+    readonly property int fontSizeSmall: 16
+    readonly property int fontSizeNormal: 20
+    readonly property int fontSizeLarge: 25
+    readonly property int fontSizeTitle: 25
     readonly property real radius: 12
     readonly property real radiusLarge: 18
 
@@ -221,7 +221,7 @@ Item {
                     onClicked: backClicked()
                 }
 
-                Column {
+                Row {
                     anchors.left: backButton.right
                     anchors.leftMargin: 12
                     anchors.right: parent.right
@@ -229,12 +229,12 @@ Item {
                     spacing: 2
 
                     Text {
+                        id: settingTitle
                         text: "Settings"
                         color: foreground
                         font.pixelSize: fontSizeTitle
                         font.bold: true
                         elide: Text.ElideRight
-                        width: parent.width
                     }
 
                     Text {
@@ -242,7 +242,8 @@ Item {
                         color: mutedForeground
                         font.pixelSize: fontSizeSmall
                         elide: Text.ElideRight
-                        width: parent.width
+                        width: Math.max(0, parent.width - settingTitle.width - 12)
+                        horizontalAlignment: Text.AlignRight
                     }
                 }
 
@@ -712,7 +713,7 @@ Item {
                                 anchors.centerIn: parent
                                 text: "⌘"
                                 color: shortcutRect.activeFocus ? accent : mutedForeground
-                                font.pixelSize: 13
+                                font.pixelSize: 22
                             }
                         }
 
@@ -795,7 +796,7 @@ Item {
                     anchors.centerIn: parent
                     text: "GPT Translator  v" + Qt.application.version
                     color: subtleForeground
-                    font.pixelSize: 11
+                    font.pixelSize: 14
                 }
             }
         }
@@ -952,7 +953,7 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             text: label
             color: mutedForeground
-            font.pixelSize: 10
+            font.pixelSize: 15
             font.weight: Font.DemiBold
             elide: Text.ElideRight
         }
