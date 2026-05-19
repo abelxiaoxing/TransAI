@@ -788,17 +788,6 @@ Item {
                 }
             }
 
-            Item {
-                width: parent.width
-                height: 36
-
-                Text {
-                    anchors.centerIn: parent
-                    text: "GPT Translator  v" + Qt.application.version
-                    color: subtleForeground
-                    font.pixelSize: 14
-                }
-            }
         }
     }
 
