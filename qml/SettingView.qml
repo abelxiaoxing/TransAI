@@ -4,25 +4,39 @@ import Controller
 
 Item {
     id: root
-    signal backClicked;
+    signal backClicked
 
-    property bool lock:false
+    property bool lock: false
     property string selectedProvider: "openai"
     property string selectedModel: "gpt-3.5-turbo"
     property bool openModelPopupAfterDetect: false
+    property string shortcutBeforeRecording: ""
+    property bool shortcutRecordingAccepted: false
     readonly property bool isOllamaProvider: selectedProvider === "ollama"
     readonly property string ollamaApiServer: "http://localhost:11434"
 
-    // 主题颜色定义
-    readonly property color backgroundColor: "#1E1E1E"
-    readonly property color foreground: "#D4D4D4"
-    readonly property color accent: "#4EC9B0"
-    readonly property color accentHover: "#5ED9C0"
-    readonly property color border: "#3E3E42"
-    readonly property color backgroundSecondary: "#252526"
+    // Futuristic dark design tokens
+    readonly property color backgroundColor: "#090D13"
+    readonly property color backgroundSecondary: "#121A24"
+    readonly property color panelColor: "#141F2A"
+    readonly property color panelColorAlt: "#101720"
+    readonly property color fieldColor: "#0D141D"
+    readonly property color foreground: "#E8F3F7"
+    readonly property color mutedForeground: "#89A2B2"
+    readonly property color subtleForeground: "#5F7484"
+    readonly property color accent: "#65F4D6"
+    readonly property color accentHover: "#8CFFE8"
+    readonly property color accentPurple: "#7C5CFF"
+    readonly property color border: "#243445"
+    readonly property color borderActive: "#65F4D6"
+    readonly property color error: "#FF7A90"
+    readonly property color success: "#65F4D6"
+    readonly property int fontSizeSmall: 12
     readonly property int fontSizeNormal: 14
-    readonly property int fontSizeLarge: 16
-    readonly property real radius: 8
+    readonly property int fontSizeLarge: 17
+    readonly property int fontSizeTitle: 24
+    readonly property real radius: 12
+    readonly property real radiusLarge: 18
 
     function providerFromIndex(index) {
         return index === 1 ? "ollama" : "openai"
@@ -41,7 +55,7 @@ Item {
         }
     }
 
-    function reload(){
+    function reload() {
         setting.loadConfig()
         lock = true
         selectedProvider = setting.provider === "ollama" ? "ollama" : "openai"
@@ -62,8 +76,8 @@ Item {
         })
     }
 
-    function saveConfig(){
-        if(lock){
+    function saveConfig() {
+        if (lock) {
             return
         }
         setting.apiServer = isOllamaProvider ? ollamaApiServer : serverInput.text.trim()
@@ -74,15 +88,101 @@ Item {
         setting.updateConfig()
     }
 
-    function detectModels(){
+    function detectModels() {
         modelDetector.detectModels(isOllamaProvider ? ollamaApiServer : serverInput.text.trim(), keyInput.text, selectedProvider)
+    }
+
+    function keyNameFromEvent(event) {
+        if (event.key >= Qt.Key_A && event.key <= Qt.Key_Z) {
+            return String.fromCharCode(event.key)
+        }
+        if (event.key >= Qt.Key_0 && event.key <= Qt.Key_9) {
+            return String.fromCharCode(event.key)
+        }
+        switch (event.key) {
+        case Qt.Key_F1: return "F1"
+        case Qt.Key_F2: return "F2"
+        case Qt.Key_F3: return "F3"
+        case Qt.Key_F4: return "F4"
+        case Qt.Key_F5: return "F5"
+        case Qt.Key_F6: return "F6"
+        case Qt.Key_F7: return "F7"
+        case Qt.Key_F8: return "F8"
+        case Qt.Key_F9: return "F9"
+        case Qt.Key_F10: return "F10"
+        case Qt.Key_F11: return "F11"
+        case Qt.Key_F12: return "F12"
+        default: return ""
+        }
+    }
+
+    function shortcutFromEvent(event) {
+        var parts = []
+        if (event.modifiers & Qt.ControlModifier) {
+            parts.push("Ctrl")
+        }
+        if (event.modifiers & Qt.MetaModifier) {
+            parts.push("Meta")
+        }
+        if (event.modifiers & Qt.AltModifier) {
+            parts.push("Alt")
+        }
+        if (event.modifiers & Qt.ShiftModifier) {
+            parts.push("Shift")
+        }
+
+        var keyName = keyNameFromEvent(event)
+        if (keyName.length === 0) {
+            return ""
+        }
+
+        var isFunctionKey = keyName.charAt(0) === "F"
+        if (parts.length === 0 && !isFunctionKey) {
+            return ""
+        }
+        return parts.length > 0 ? parts.join("+") + "+" + keyName : keyName
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        color: backgroundColor
+        gradient: Gradient {
+            GradientStop { position: 0.0; color: "#101827" }
+            GradientStop { position: 0.52; color: "#090D13" }
+            GradientStop { position: 1.0; color: "#070A10" }
+        }
+    }
+
+    // Subtle neon ambience without expensive shader effects.
+    Rectangle {
+        width: 260
+        height: 260
+        radius: 130
+        x: -120
+        y: -90
+        color: Qt.rgba(0.39, 0.96, 0.84, 0.12)
+        border.color: Qt.rgba(0.39, 0.96, 0.84, 0.18)
+        border.width: 1
+    }
+
+    Rectangle {
+        width: 220
+        height: 220
+        radius: 110
+        anchors.right: parent.right
+        anchors.rightMargin: -110
+        anchors.top: parent.top
+        anchors.topMargin: 90
+        color: Qt.rgba(0.49, 0.36, 1.0, 0.10)
+        border.color: Qt.rgba(0.49, 0.36, 1.0, 0.16)
+        border.width: 1
     }
 
     MouseArea {
         anchors.fill: parent
         onClicked: {
-            shortcutRect.focus = false;
-            if(shortcutText.text.length > 0){
+            shortcutRect.focus = false
+            if (shortcutText.text.length > 0) {
                 hotkey.setShortcut(shortcutText.text)
             }
         }
@@ -91,8 +191,8 @@ Item {
     Flickable {
         id: flickable
         anchors.fill: parent
-        anchors.margins: 15
-        contentHeight: contentColumn.height + 20
+        anchors.margins: 18
+        contentHeight: contentColumn.height + 24
         clip: true
         boundsBehavior: Flickable.StopAtBounds
 
@@ -101,35 +201,88 @@ Item {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
-            spacing: 0
+            spacing: 14
 
-            // 返回按钮
             Item {
+                id: header
                 width: parent.width
-                height: 30
-                IconButton {
-                    width: 20
-                    height: 20
+                height: 78
+
+                RoundIconButton {
+                    id: backButton
                     anchors.left: parent.left
-                    anchors.verticalCenter: parent.verticalCenter
-                    normalUrl: "qrc:///res/back1.png"
-                    hoveredUrl: "qrc:///res/back1.png"
-                    pressedUrl: "qrc:///res/back2.png"
+                    anchors.top: parent.top
+                    width: 40
+                    height: 40
+                    label: "‹"
+                    tooltip: "Back"
                     onClicked: backClicked()
+                }
+
+                Column {
+                    anchors.left: backButton.right
+                    anchors.leftMargin: 12
+                    anchors.right: parent.right
+                    anchors.verticalCenter: backButton.verticalCenter
+                    spacing: 2
+
+                    Text {
+                        text: "Settings"
+                        color: foreground
+                        font.pixelSize: fontSizeTitle
+                        font.bold: true
+                        elide: Text.ElideRight
+                        width: parent.width
+                    }
+
+                    Text {
+                        text: "Neural translation control center"
+                        color: mutedForeground
+                        font.pixelSize: fontSizeSmall
+                        elide: Text.ElideRight
+                        width: parent.width
+                    }
+                }
+
+                Row {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    spacing: 8
+
+                    StatusPill {
+                        label: selectedProvider === "ollama" ? "LOCAL" : "CLOUD"
+                        dotColor: selectedProvider === "ollama" ? accentPurple : accent
+                    }
+
+                    StatusPill {
+                        label: selectedModel.length > 0 ? selectedModel : "NO MODEL"
+                        dotColor: modelDetector.modelDetectError !== "" ? error : accent
+                        width: Math.min(190, implicitWidth)
+                    }
                 }
             }
 
-            // ---- Provider ----
-            SectionTitle { text: "Provider" }
-            Item {
-                width: parent.width
-                height: 36
+            SettingsCard {
+                title: "AI Provider"
+                subtitle: "Connect TransAI to your preferred inference endpoint."
+
+                Text {
+                    width: parent.width
+                    text: "Provider"
+                    color: mutedForeground
+                    font.pixelSize: fontSizeSmall
+                    font.weight: Font.DemiBold
+                }
+
                 ComboBox {
                     id: providerCombo
-                    anchors.fill: parent
+                    width: parent.width
+                    height: 44
                     model: ["OpenAI", "Ollama"]
                     currentIndex: 0
                     font.pixelSize: fontSizeNormal
+                    hoverEnabled: true
 
                     onCurrentIndexChanged: {
                         selectedProvider = providerFromIndex(currentIndex)
@@ -142,10 +295,11 @@ Item {
                     }
 
                     background: Rectangle {
-                        color: backgroundSecondary
+                        color: providerCombo.hovered || providerCombo.popup.opened ? "#152332" : fieldColor
                         radius: root.radius
                         border.width: 1
-                        border.color: border
+                        border.color: providerCombo.popup.opened ? borderActive : (providerCombo.hovered ? Qt.rgba(0.39, 0.96, 0.84, 0.55) : border)
+                        Behavior on color { ColorAnimation { duration: 160 } }
                     }
 
                     contentItem: Text {
@@ -154,37 +308,21 @@ Item {
                         font.pixelSize: fontSizeNormal
                         verticalAlignment: Text.AlignVCenter
                         elide: Text.ElideRight
-                        leftPadding: 10
-                        rightPadding: providerCombo.indicator.width + 12
+                        leftPadding: 14
+                        rightPadding: 40
                     }
 
-                    indicator: Canvas {
-                        id: providerIndicator
-                        x: providerCombo.width - width - 12
+                    indicator: Text {
+                        x: providerCombo.width - width - 14
                         y: (providerCombo.height - height) / 2
-                        width: 12
-                        height: 8
-                        contextType: "2d"
-
-                        Connections {
-                            target: providerCombo
-                            function onPressedChanged() { providerIndicator.requestPaint() }
-                        }
-
-                        onPaint: {
-                            context.reset()
-                            context.moveTo(0, 0)
-                            context.lineTo(width, 0)
-                            context.lineTo(width / 2, height)
-                            context.closePath()
-                            context.fillStyle = providerCombo.pressed ? accentHover : foreground
-                            context.fill()
-                        }
+                        text: providerCombo.popup.opened ? "▴" : "▾"
+                        color: providerCombo.hovered || providerCombo.popup.opened ? accentHover : mutedForeground
+                        font.pixelSize: 16
                     }
 
                     delegate: ItemDelegate {
                         width: providerCombo.width
-                        height: 36
+                        height: 38
                         highlighted: providerCombo.highlightedIndex === index
 
                         contentItem: Text {
@@ -193,19 +331,20 @@ Item {
                             font.pixelSize: fontSizeNormal
                             verticalAlignment: Text.AlignVCenter
                             elide: Text.ElideRight
-                            leftPadding: 10
-                            rightPadding: 10
+                            leftPadding: 12
+                            rightPadding: 12
                         }
+
                         background: Rectangle {
-                            color: providerCombo.highlightedIndex === index ? Qt.darker(backgroundSecondary, 1.15) : backgroundSecondary
-                            radius: root.radius
+                            color: providerCombo.highlightedIndex === index ? "#1A2A3A" : panelColorAlt
+                            radius: 8
                         }
                     }
 
                     popup: Popup {
-                        y: providerCombo.height + 2
+                        y: providerCombo.height + 6
                         width: providerCombo.width
-                        implicitHeight: contentItem.implicitHeight
+                        implicitHeight: contentItem.implicitHeight + 2
                         padding: 1
 
                         contentItem: ListView {
@@ -217,378 +356,449 @@ Item {
                         }
 
                         background: Rectangle {
-                            color: backgroundSecondary
+                            color: panelColorAlt
                             radius: root.radius
                             border.width: 1
-                            border.color: border
-                        }
-                    }
-                }
-            }
-
-            Separator {}
-
-            // ---- API Server ----
-            SectionTitle {
-                text: "API Server"
-                visible: !isOllamaProvider
-            }
-            Item {
-                width: parent.width
-                height: visible ? 36 : 0
-                visible: !isOllamaProvider
-                Rectangle {
-                    color: backgroundSecondary
-                    anchors.fill: parent
-                    radius: radius
-                }
-                TextInput {
-                    id: serverInput
-                    anchors.fill: parent
-                    padding: 10
-                    text: "https://api.openai.com"
-                    color: foreground
-                    font.pixelSize: fontSizeNormal
-                    verticalAlignment: Text.AlignVCenter
-                    onTextChanged: saveConfig()
-                }
-            }
-
-            Separator { visible: !isOllamaProvider }
-
-            // ---- API Key ----
-            SectionTitle {
-                text: "API Key"
-                visible: !isOllamaProvider
-            }
-            ScrollView {
-                width: parent.width
-                height: visible ? 72 : 0
-                visible: !isOllamaProvider
-                contentWidth: width
-                contentHeight: keyInput.contentHeight + 20
-                ScrollBar.vertical: ScrollBar {
-                    width: (parent.contentHeight >= parent.height) ? 8 : 0
-                    height: parent.height
-                    anchors.right: parent.right
-                    policy: ScrollBar.AlwaysOn
-                }
-                TextArea {
-                    id: keyInput
-                    height: 72
-                    font.pixelSize: fontSizeNormal
-                    color: foreground
-                    wrapMode: Text.WrapAnywhere
-                    onTextChanged: saveConfig()
-                    background: Rectangle {
-                        color: backgroundSecondary
-                        radius: radius
-                    }
-                }
-            }
-
-            Separator { visible: !isOllamaProvider }
-
-            // ---- Model ----
-            SectionTitle { text: "Model" }
-            Item {
-                width: parent.width
-                height: 36
-                Button {
-                    id: modelSelectBtn
-                    anchors.left: parent.left
-                    anchors.right: detectModelBtn.left
-                    anchors.rightMargin: 8
-                    anchors.top: parent.top
-                    anchors.bottom: parent.bottom
-                    hoverEnabled: true
-                    font.capitalization: Font.MixedCase
-                    onClicked: {
-                        if (modelDetector.availableModels.length > 0) {
-                            modelPopup.open()
-                        } else if (!modelDetector.isDetectingModels) {
-                            openModelPopupAfterDetect = true
-                            detectModels()
-                        }
-                    }
-                    background: Rectangle {
-                        color: modelSelectBtn.down ? Qt.darker(backgroundSecondary, 1.2)
-                                                   : (modelSelectBtn.hovered || modelPopup.opened ? Qt.darker(backgroundSecondary, 1.08) : backgroundSecondary)
-                        radius: root.radius
-                        border.width: 1
-                        border.color: modelPopup.opened ? accent : (modelSelectBtn.hovered ? accentHover : border)
-                    }
-                    contentItem: Item {
-                        Text {
-                            anchors.left: parent.left
-                            anchors.right: arrowText.left
-                            anchors.verticalCenter: parent.verticalCenter
-                            anchors.leftMargin: 10
-                            anchors.rightMargin: 8
-                            text: selectedModel.length > 0 ? selectedModel
-                                                           : (modelDetector.availableModels.length > 0 ? "Select model" : "Detect models first")
-                            color: selectedModel.length > 0 ? foreground : Qt.darker(foreground, 1.35)
-                            font.pixelSize: fontSizeNormal
-                            verticalAlignment: Text.AlignVCenter
-                            elide: Text.ElideRight
-                        }
-                        Text {
-                            id: arrowText
-                            anchors.right: parent.right
-                            anchors.rightMargin: 10
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: modelPopup.opened ? "▴" : "▾"
-                            color: modelSelectBtn.hovered || modelPopup.opened ? accentHover : foreground
-                            font.pixelSize: 16
-                            verticalAlignment: Text.AlignVCenter
+                            border.color: borderActive
                         }
                     }
                 }
 
-                Button {
-                    id: detectModelBtn
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.bottom: parent.bottom
-                    width: 80
-                    text: modelDetector.isDetectingModels ? "Detecting" : "Detect"
-                    enabled: !modelDetector.isDetectingModels
-                    font.capitalization: Font.MixedCase
-                    font.pixelSize: fontSizeNormal
-                    onClicked: {
-                        openModelPopupAfterDetect = false
-                        detectModels()
+                Column {
+                    width: parent.width
+                    spacing: 7
+                    visible: !isOllamaProvider
+                    height: visible ? implicitHeight : 0
+
+                    Text {
+                        width: parent.width
+                        text: "API Server"
+                        color: mutedForeground
+                        font.pixelSize: fontSizeSmall
+                        font.weight: Font.DemiBold
                     }
-                    background: Rectangle {
-                        color: detectModelBtn.enabled ? accent : border
-                        radius: root.radius
-                    }
-                    contentItem: Text {
-                        text: detectModelBtn.text
-                        color: "white"
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
+
+                    TextField {
+                        id: serverInput
+                        width: parent.width
+                        height: 44
+                        text: "https://api.openai.com"
+                        color: foreground
+                        placeholderText: "https://api.openai.com"
+                        placeholderTextColor: subtleForeground
                         font.pixelSize: fontSizeNormal
+                        leftPadding: 14
+                        rightPadding: 14
+                        verticalAlignment: TextInput.AlignVCenter
+                        selectByMouse: true
+                        onTextChanged: saveConfig()
+
+                        background: Rectangle {
+                            color: serverInput.activeFocus ? "#152332" : fieldColor
+                            radius: root.radius
+                            border.width: 1
+                            border.color: serverInput.activeFocus ? borderActive : (serverInput.hovered ? Qt.rgba(0.39, 0.96, 0.84, 0.55) : border)
+                            Behavior on color { ColorAnimation { duration: 160 } }
+                        }
                     }
                 }
 
-                Popup {
-                    id: modelPopup
-                    x: modelSelectBtn.x
-                    y: parent.height + 2
-                    width: modelSelectBtn.width
-                    implicitHeight: Math.min(modelList.contentHeight + 2, 180)
-                    padding: 1
-                    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                Column {
+                    width: parent.width
+                    spacing: 7
+                    visible: !isOllamaProvider
+                    height: visible ? implicitHeight : 0
 
-                    contentItem: ListView {
-                        id: modelList
+                    Row {
+                        width: parent.width
+                        height: 16
+
+                        Text {
+                            text: "API Key"
+                            color: mutedForeground
+                            font.pixelSize: fontSizeSmall
+                            font.weight: Font.DemiBold
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+
+                        Text {
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: keyInput.text.trim().length > 0 ? "saved locally" : "required"
+                            color: keyInput.text.trim().length > 0 ? accent : subtleForeground
+                            font.pixelSize: 11
+                        }
+                    }
+
+                    ScrollView {
+                        id: keyScroll
+                        width: parent.width
+                        height: 86
                         clip: true
-                        implicitHeight: Math.min(contentHeight, 180)
-                        model: modelDetector.availableModels
-                        ScrollIndicator.vertical: ScrollIndicator { }
-                        delegate: ItemDelegate {
-                            width: modelList.width
-                            height: 36
-                            contentItem: Text {
-                                text: modelData
-                                color: selectedModel === modelData ? accent : foreground
+                        contentWidth: availableWidth
+                        ScrollBar.vertical: ScrollBar {
+                            policy: keyInput.contentHeight > keyScroll.height ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
+                            width: 7
+                        }
+
+                        TextArea {
+                            id: keyInput
+                            width: keyScroll.availableWidth
+                            height: keyScroll.height
+                            color: foreground
+                            placeholderText: "sk-..."
+                            placeholderTextColor: subtleForeground
+                            font.pixelSize: fontSizeNormal
+                            wrapMode: Text.WrapAnywhere
+                            selectByMouse: true
+                            topPadding: 10
+                            bottomPadding: 10
+                            leftPadding: 14
+                            rightPadding: 14
+                            onTextChanged: saveConfig()
+
+                            background: Rectangle {
+                                color: keyInput.activeFocus ? "#152332" : fieldColor
+                                radius: root.radius
+                                border.width: 1
+                                border.color: keyInput.activeFocus ? borderActive : (keyInput.hovered ? Qt.rgba(0.39, 0.96, 0.84, 0.55) : border)
+                                Behavior on color { ColorAnimation { duration: 160 } }
+                            }
+                        }
+                    }
+                }
+            }
+
+            SettingsCard {
+                title: "Model Router"
+                subtitle: "Discover available models and bind one for translation."
+
+                Text {
+                    width: parent.width
+                    text: "Model"
+                    color: mutedForeground
+                    font.pixelSize: fontSizeSmall
+                    font.weight: Font.DemiBold
+                }
+
+                Item {
+                    id: modelRow
+                    width: parent.width
+                    height: 44
+
+                    Button {
+                        id: modelSelectBtn
+                        anchors.left: parent.left
+                        anchors.right: detectModelBtn.left
+                        anchors.rightMargin: 10
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        hoverEnabled: true
+                        font.capitalization: Font.MixedCase
+                        scale: down ? 0.98 : 1.0
+
+                        onClicked: {
+                            if (modelDetector.availableModels.length > 0) {
+                                modelPopup.open()
+                            } else if (!modelDetector.isDetectingModels) {
+                                openModelPopupAfterDetect = true
+                                detectModels()
+                            }
+                        }
+
+                        Behavior on scale { NumberAnimation { duration: 90 } }
+
+                        background: Rectangle {
+                            color: modelSelectBtn.down ? "#0B1118" : (modelSelectBtn.hovered || modelPopup.opened ? "#152332" : fieldColor)
+                            radius: root.radius
+                            border.width: 1
+                            border.color: modelPopup.opened ? borderActive : (modelSelectBtn.hovered ? Qt.rgba(0.39, 0.96, 0.84, 0.55) : border)
+                            Behavior on color { ColorAnimation { duration: 160 } }
+                        }
+
+                        contentItem: Item {
+                            Text {
+                                anchors.left: parent.left
+                                anchors.right: arrowText.left
+                                anchors.verticalCenter: parent.verticalCenter
+                                anchors.leftMargin: 14
+                                anchors.rightMargin: 8
+                                text: selectedModel.length > 0 ? selectedModel
+                                                               : (modelDetector.availableModels.length > 0 ? "Select model" : "Detect models first")
+                                color: selectedModel.length > 0 ? foreground : subtleForeground
                                 font.pixelSize: fontSizeNormal
                                 verticalAlignment: Text.AlignVCenter
                                 elide: Text.ElideRight
-                                leftPadding: 10
-                                rightPadding: 10
                             }
-                            background: Rectangle {
-                                color: hovered ? Qt.darker(backgroundSecondary, 1.15) : backgroundSecondary
-                            }
-                            onClicked: {
-                                selectedModel = modelData
-                                modelPopup.close()
-                                saveConfig()
+
+                            Text {
+                                id: arrowText
+                                anchors.right: parent.right
+                                anchors.rightMargin: 12
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: modelPopup.opened ? "▴" : "▾"
+                                color: modelSelectBtn.hovered || modelPopup.opened ? accentHover : mutedForeground
+                                font.pixelSize: 16
                             }
                         }
                     }
 
-                    background: Rectangle {
-                        color: backgroundSecondary
-                        radius: root.radius
-                        border.width: 1
-                        border.color: border
+                    Button {
+                        id: detectModelBtn
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        width: 96
+                        text: modelDetector.isDetectingModels ? "Scanning" : "Detect"
+                        enabled: !modelDetector.isDetectingModels
+                        hoverEnabled: true
+                        font.capitalization: Font.MixedCase
+                        font.pixelSize: fontSizeNormal
+                        scale: down ? 0.97 : 1.0
+
+                        onClicked: {
+                            openModelPopupAfterDetect = false
+                            detectModels()
+                        }
+
+                        Behavior on scale { NumberAnimation { duration: 90 } }
+
+                        background: Rectangle {
+                            radius: root.radius
+                            color: detectModelBtn.enabled ? (detectModelBtn.hovered ? accentHover : accent) : "#2A3541"
+                            border.width: 1
+                            border.color: detectModelBtn.enabled ? Qt.rgba(1, 1, 1, 0.18) : border
+                            Behavior on color { ColorAnimation { duration: 160 } }
+                        }
+
+                        contentItem: Text {
+                            text: detectModelBtn.text
+                            color: detectModelBtn.enabled ? "#061014" : subtleForeground
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                            font.pixelSize: fontSizeNormal
+                            font.weight: Font.DemiBold
+                        }
+                    }
+
+                    Popup {
+                        id: modelPopup
+                        x: modelSelectBtn.x
+                        y: modelSelectBtn.height + 6
+                        width: modelSelectBtn.width
+                        implicitHeight: Math.min(modelList.contentHeight + 2, 196)
+                        padding: 1
+                        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+                        contentItem: ListView {
+                            id: modelList
+                            clip: true
+                            implicitHeight: Math.min(contentHeight, 196)
+                            model: modelDetector.availableModels
+                            ScrollIndicator.vertical: ScrollIndicator { }
+
+                            delegate: ItemDelegate {
+                                width: modelList.width
+                                height: 38
+                                hoverEnabled: true
+
+                                contentItem: Text {
+                                    text: modelData
+                                    color: selectedModel === modelData ? accent : foreground
+                                    font.pixelSize: fontSizeNormal
+                                    verticalAlignment: Text.AlignVCenter
+                                    elide: Text.ElideRight
+                                    leftPadding: 12
+                                    rightPadding: 12
+                                }
+
+                                background: Rectangle {
+                                    color: hovered ? "#1A2A3A" : panelColorAlt
+                                }
+
+                                onClicked: {
+                                    selectedModel = modelData
+                                    modelPopup.close()
+                                    saveConfig()
+                                }
+                            }
+                        }
+
+                        background: Rectangle {
+                            color: panelColorAlt
+                            radius: root.radius
+                            border.width: 1
+                            border.color: borderActive
+                        }
+                    }
+                }
+
+                Rectangle {
+                    width: parent.width
+                    height: modelDetectTip.visible ? 34 : 0
+                    visible: modelDetectTip.text.length > 0
+                    radius: 10
+                    color: modelDetector.modelDetectError !== "" ? Qt.rgba(1.0, 0.48, 0.56, 0.10) : Qt.rgba(0.39, 0.96, 0.84, 0.09)
+                    border.width: 1
+                    border.color: modelDetector.modelDetectError !== "" ? Qt.rgba(1.0, 0.48, 0.56, 0.35) : Qt.rgba(0.39, 0.96, 0.84, 0.28)
+
+                    Text {
+                        id: modelDetectTip
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: 12
+                        anchors.rightMargin: 12
+                        text: modelDetector.modelDetectError !== "" ? modelDetector.modelDetectError
+                                                                      : (modelDetector.availableModels.length > 0 ? (modelDetector.availableModels.length + " models detected · click Model to choose") : "")
+                        color: modelDetector.modelDetectError !== "" ? error : mutedForeground
+                        font.pixelSize: fontSizeSmall
+                        elide: Text.ElideRight
                     }
                 }
             }
 
-            Item {
-                width: parent.width
-                height: modelDetectTip.visible ? modelDetectTip.implicitHeight + 4 : 0
+            SettingsCard {
+                title: "Global Hotkey"
+                subtitle: "Capture selected text from anywhere and translate instantly."
+
                 Text {
-                    id: modelDetectTip
-                    anchors.bottom: parent.bottom
                     width: parent.width
-                    text: modelDetector.modelDetectError !== "" ? modelDetector.modelDetectError
-                                                                  : (modelDetector.availableModels.length > 0 ? (modelDetector.availableModels.length + " models detected, click Model to choose") : "")
-                    color: modelDetector.modelDetectError !== "" ? "#F48771" : foreground
-                    font.pixelSize: 12
-                    elide: Text.ElideRight
-                    visible: text.length > 0
+                    text: "Shortcut"
+                    color: mutedForeground
+                    font.pixelSize: fontSizeSmall
+                    font.weight: Font.DemiBold
                 }
-            }
 
-            Separator {}
-
-            // ---- Shortcut ----
-            SectionTitle { text: "Shortcut" }
-            Item {
-                width: parent.width
-                height: 36
                 Rectangle {
                     id: shortcutRect
-                    color: backgroundSecondary
-                    anchors.fill: parent
-                    radius: radius
+                    width: parent.width
+                    height: 52
+                    color: activeFocus ? "#152332" : fieldColor
+                    radius: root.radius
                     border.width: 1
-                    border.color: border
+                    border.color: activeFocus ? borderActive : border
+                    focus: false
 
-                    onFocusChanged: {
-                        if (focus) {
-                            border.color = accent
-                            shortcutRect.forceActiveFocus()
-                            shortcutText.text = ""
-                            hotkey.setShortcut("")
-                        } else {
-                            border.color = border
+                    onActiveFocusChanged: {
+                        if (activeFocus) {
+                            shortcutBeforeRecording = shortcutText.text
+                            shortcutRecordingAccepted = false
+                            if (shortcutBeforeRecording.length > 0) {
+                                hotkey.setShortcut("")
+                            }
+                        } else if (!shortcutRecordingAccepted && shortcutBeforeRecording.length > 0) {
+                            hotkey.setShortcut(shortcutBeforeRecording)
+                        }
+                    }
+
+                    Behavior on color { ColorAnimation { duration: 160 } }
+
+                    Row {
+                        anchors.fill: parent
+                        anchors.leftMargin: 14
+                        anchors.rightMargin: 14
+                        spacing: 10
+
+                        Rectangle {
+                            width: 24
+                            height: 24
+                            radius: 12
+                            anchors.verticalCenter: parent.verticalCenter
+                            color: shortcutRect.activeFocus ? Qt.rgba(0.39, 0.96, 0.84, 0.18) : Qt.rgba(0.54, 0.64, 0.70, 0.12)
+                            border.width: 1
+                            border.color: shortcutRect.activeFocus ? accent : border
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: "⌘"
+                                color: shortcutRect.activeFocus ? accent : mutedForeground
+                                font.pixelSize: 13
+                            }
+                        }
+
+                        Text {
+                            id: shortcutText
+                            width: parent.width - 34
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: ""
+                            color: text.length > 0 ? foreground : subtleForeground
+                            font.pixelSize: fontSizeNormal
+                            font.weight: Font.DemiBold
+                            textFormat: Text.PlainText
+                            elide: Text.ElideRight
+                            verticalAlignment: Text.AlignVCenter
+                            onTextChanged: saveConfig()
                         }
                     }
 
                     Text {
-                        id: shortcutText
-                        anchors.centerIn: parent
-                        text: ""
-                        color: foreground
-                        font.pixelSize: fontSizeNormal
-                        onTextChanged: saveConfig()
+                        anchors.right: parent.right
+                        anchors.rightMargin: 14
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: shortcutText.text.length === 0 && !shortcutRect.activeFocus
+                        text: "Click to record"
+                        color: subtleForeground
+                        font.pixelSize: fontSizeSmall
+                    }
+
+                    Text {
+                        anchors.right: parent.right
+                        anchors.rightMargin: 14
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: shortcutRect.activeFocus
+                        text: "Press keys..."
+                        color: accent
+                        font.pixelSize: fontSizeSmall
                     }
 
                     Keys.onPressed: (event) => {
-                        if (!shortcutRect.focus) return
-
-                        shortcutText.text = ""
-                        var valid = false
-                        var haveCtrl = false
-
-                        if (Qt.platform.os === "macos" || Qt.platform.os === "osx") {
-                            if (event.modifiers & Qt.ControlModifier) {
-                                shortcutText.text = "Ctrl+"
-                                haveCtrl = true
-                            }
-                            if (event.modifiers & Qt.MetaModifier) {
-                                shortcutText.text = "Meta+"
-                                haveCtrl = true
-                            }
-                        } else {
-                            if (event.modifiers & Qt.ControlModifier) {
-                                shortcutText.text = "Ctrl+"
-                                haveCtrl = true
-                            }
+                        if (!shortcutRect.activeFocus) {
+                            return
                         }
 
-                        if (event.modifiers & Qt.AltModifier) {
-                            shortcutText.text = "Alt+"
-                            haveCtrl = true
-                        }
-                        if (event.modifiers & Qt.ShiftModifier) {
-                            shortcutText.text = "Shift+"
-                            haveCtrl = true
-                        }
-
-                        if (shortcutText.text.length > 0) {
-                            switch (event.key) {
-                                case Qt.Key_F1: shortcutText.text = "F1"; valid = true; break;
-                                case Qt.Key_F2: shortcutText.text = "F2"; valid = true; break;
-                                case Qt.Key_F3: shortcutText.text = "F3"; valid = true; break;
-                                case Qt.Key_F4: shortcutText.text = "F4"; valid = true; break;
-                                case Qt.Key_F5: shortcutText.text = "F5"; valid = true; break;
-                                case Qt.Key_F6: shortcutText.text = "F6"; valid = true; break;
-                                case Qt.Key_F7: shortcutText.text = "F7"; valid = true; break;
-                                case Qt.Key_F8: shortcutText.text = "F8"; valid = true; break;
-                                case Qt.Key_F9: shortcutText.text = "F9"; valid = true; break;
-                                case Qt.Key_F10: shortcutText.text = "F10"; valid = true; break;
-                                case Qt.Key_F11: shortcutText.text = "F11"; valid = true; break;
-                                case Qt.Key_F12: shortcutText.text = "F12"; valid = true; break;
-                            }
-                            if (event.key >= Qt.Key_0 && event.key <= Qt.Key_9) {
-                                if (haveCtrl) {
-                                    shortcutText.text += String.fromCharCode(event.key)
-                                    valid = true
-                                }
-                            } else if (event.key >= Qt.Key_A && event.key <= Qt.Key_Z) {
-                                if (haveCtrl) {
-                                    shortcutText.text += String.fromCharCode(event.key)
-                                    valid = true
-                                }
-                            }
-                        }
-
-                        if (valid) {
+                        if (event.key === Qt.Key_Escape) {
                             shortcutRect.focus = false
-                            if (shortcutText.text.length > 0) {
-                                if (hotkey.setShortcut(shortcutText.text) == false) {
-                                    shortcutRect.focus = false
-                                    shortcutText.text = ""
-                                }
-                            }
+                            event.accepted = true
+                            return
                         }
-                    }
-                }
 
-                MouseArea {
-                    anchors.fill: parent
-                    onClicked: shortcutRect.focus = true
+                        var shortcut = shortcutFromEvent(event)
+                        if (shortcut.length > 0) {
+                            if (hotkey.setShortcut(shortcut) === false) {
+                                if (shortcutBeforeRecording.length > 0) {
+                                    hotkey.setShortcut(shortcutBeforeRecording)
+                                }
+                                shortcutRect.focus = false
+                                event.accepted = true
+                                return
+                            }
+                            shortcutRecordingAccepted = true
+                            shortcutText.text = shortcut
+                            shortcutRect.focus = false
+                        }
+                        event.accepted = true
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: shortcutRect.forceActiveFocus()
+                    }
                 }
             }
 
-            Separator {}
-
-            // 底部极简版本信息
             Item {
                 width: parent.width
-                height: 24
+                height: 36
+
                 Text {
                     anchors.centerIn: parent
                     text: "GPT Translator  v" + Qt.application.version
-                    color: Qt.darker(foreground, 1.6)
+                    color: subtleForeground
                     font.pixelSize: 11
                 }
             }
-        }
-    }
-
-    // 可复用的标题组件
-    component SectionTitle: Item {
-        width: parent.width
-        height: sectionText.height + 24
-        property alias text: sectionText.text
-        Text {
-            id: sectionText
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.left: parent.left
-            font.bold: true
-            color: accent
-            font.pixelSize: 13
-        }
-    }
-
-    // 可复用的分隔线
-    component Separator: Item {
-        width: parent.width
-        height: visible ? 17 : 0
-        Rectangle {
-            anchors.bottom: parent.bottom
-            width: parent.width
-            height: 1
-            color: border
-            opacity: 0.5
         }
     }
 
@@ -607,4 +817,145 @@ Item {
         }
     }
 
+    component SettingsCard: Rectangle {
+        width: parent ? parent.width : 0
+        height: cardColumn.height + 28
+        radius: root.radiusLarge
+        color: Qt.rgba(0.07, 0.11, 0.16, 0.82)
+        border.width: 1
+        border.color: Qt.rgba(0.39, 0.96, 0.84, 0.14)
+
+        Rectangle {
+            anchors.fill: parent
+            anchors.margins: 1
+            radius: parent.radius - 1
+            color: "transparent"
+            border.width: 1
+            border.color: Qt.rgba(1, 1, 1, 0.04)
+        }
+
+        default property alias contentData: bodyColumn.data
+        property string title: ""
+        property string subtitle: ""
+
+        Column {
+            id: cardColumn
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.margins: 14
+            spacing: 14
+
+            Row {
+                width: parent.width
+                height: Math.max(38, titleColumn.implicitHeight)
+                spacing: 10
+
+                Rectangle {
+                    width: 4
+                    height: 32
+                    radius: 2
+                    anchors.verticalCenter: parent.verticalCenter
+                    gradient: Gradient {
+                        GradientStop { position: 0.0; color: accentHover }
+                        GradientStop { position: 1.0; color: accentPurple }
+                    }
+                }
+
+                Column {
+                    id: titleColumn
+                    width: parent.width - 14
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 2
+
+                    Text {
+                        width: parent.width
+                        text: title
+                        color: foreground
+                        font.pixelSize: fontSizeLarge
+                        font.weight: Font.DemiBold
+                        elide: Text.ElideRight
+                    }
+
+                    Text {
+                        width: parent.width
+                        text: subtitle
+                        visible: subtitle.length > 0
+                        color: mutedForeground
+                        font.pixelSize: fontSizeSmall
+                        elide: Text.ElideRight
+                    }
+                }
+            }
+
+            Column {
+                id: bodyColumn
+                width: parent.width
+                spacing: 10
+            }
+        }
+    }
+
+    component RoundIconButton: Button {
+        id: control
+        property string label: ""
+        property string tooltip: ""
+        hoverEnabled: true
+        scale: down ? 0.94 : 1.0
+
+        Behavior on scale { NumberAnimation { duration: 90 } }
+
+        background: Rectangle {
+            radius: control.width / 2
+            color: control.down ? "#0C1219" : (control.hovered ? "#182838" : Qt.rgba(0.07, 0.11, 0.16, 0.76))
+            border.width: 1
+            border.color: control.hovered ? borderActive : border
+            Behavior on color { ColorAnimation { duration: 160 } }
+        }
+
+        contentItem: Text {
+            text: control.label
+            color: control.hovered ? accentHover : foreground
+            font.pixelSize: 28
+            font.weight: Font.Light
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+        }
+    }
+
+    component StatusPill: Rectangle {
+        property string label: ""
+        property color dotColor: accent
+        implicitWidth: pillText.implicitWidth + 30
+        width: implicitWidth
+        height: 24
+        radius: 12
+        color: Qt.rgba(1, 1, 1, 0.055)
+        border.width: 1
+        border.color: Qt.rgba(1, 1, 1, 0.08)
+
+        Rectangle {
+            width: 7
+            height: 7
+            radius: 4
+            anchors.left: parent.left
+            anchors.leftMargin: 10
+            anchors.verticalCenter: parent.verticalCenter
+            color: dotColor
+        }
+
+        Text {
+            id: pillText
+            anchors.left: parent.left
+            anchors.leftMargin: 21
+            anchors.right: parent.right
+            anchors.rightMargin: 9
+            anchors.verticalCenter: parent.verticalCenter
+            text: label
+            color: mutedForeground
+            font.pixelSize: 10
+            font.weight: Font.DemiBold
+            elide: Text.ElideRight
+        }
+    }
 }
