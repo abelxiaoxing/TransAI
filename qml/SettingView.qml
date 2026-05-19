@@ -269,99 +269,101 @@ Item {
                 title: "AI Provider"
                 subtitle: "Connect TransAI to your preferred inference endpoint."
 
-                Text {
+                Row {
                     width: parent.width
-                    text: "Provider"
-                    color: mutedForeground
-                    font.pixelSize: fontSizeSmall
-                    font.weight: Font.DemiBold
-                }
+                    spacing: 10
 
-                ComboBox {
-                    id: providerCombo
-                    width: parent.width
-                    height: 44
-                    model: ["OpenAI", "Ollama"]
-                    currentIndex: 0
-                    font.pixelSize: fontSizeNormal
-                    hoverEnabled: true
-
-                    onCurrentIndexChanged: {
-                        selectedProvider = providerFromIndex(currentIndex)
-                        openModelPopupAfterDetect = false
-                        modelPopup.close()
-                        if (!lock) {
-                            applyProviderDefaults()
-                            saveConfig()
-                        }
+                    FieldLabel {
+                        id: providerLabel
+                        title: "Provider"
                     }
 
-                    background: Rectangle {
-                        color: providerCombo.hovered || providerCombo.popup.opened ? "#152332" : fieldColor
-                        radius: root.radius
-                        border.width: 1
-                        border.color: providerCombo.popup.opened ? borderActive : (providerCombo.hovered ? Qt.rgba(0.39, 0.96, 0.84, 0.55) : border)
-                        Behavior on color { ColorAnimation { duration: 160 } }
-                    }
-
-                    contentItem: Text {
-                        text: providerCombo.displayText
-                        color: foreground
+                    ComboBox {
+                        id: providerCombo
+                        width: parent.width - providerLabel.width - 10
+                        height: 44
+                        model: ["OpenAI", "Ollama"]
+                        currentIndex: 0
                         font.pixelSize: fontSizeNormal
-                        verticalAlignment: Text.AlignVCenter
-                        elide: Text.ElideRight
-                        leftPadding: 14
-                        rightPadding: 40
-                    }
+                        hoverEnabled: true
 
-                    indicator: Text {
-                        x: providerCombo.width - width - 14
-                        y: (providerCombo.height - height) / 2
-                        text: providerCombo.popup.opened ? "▴" : "▾"
-                        color: providerCombo.hovered || providerCombo.popup.opened ? accentHover : mutedForeground
-                        font.pixelSize: 16
-                    }
+                        onCurrentIndexChanged: {
+                            selectedProvider = providerFromIndex(currentIndex)
+                            openModelPopupAfterDetect = false
+                            modelPopup.close()
+                            if (!lock) {
+                                applyProviderDefaults()
+                                saveConfig()
+                            }
+                        }
 
-                    delegate: ItemDelegate {
-                        width: providerCombo.width
-                        height: 38
-                        highlighted: providerCombo.highlightedIndex === index
+                        background: Rectangle {
+                            color: providerCombo.hovered || providerCombo.popup.opened ? "#152332" : fieldColor
+                            radius: root.radius
+                            border.width: 1
+                            border.color: providerCombo.popup.opened ? borderActive : (providerCombo.hovered ? Qt.rgba(0.39, 0.96, 0.84, 0.55) : border)
+                            Behavior on color { ColorAnimation { duration: 160 } }
+                        }
 
                         contentItem: Text {
-                            text: modelData
-                            color: providerCombo.currentIndex === index ? accent : foreground
+                            text: providerCombo.displayText
+                            color: foreground
                             font.pixelSize: fontSizeNormal
                             verticalAlignment: Text.AlignVCenter
                             elide: Text.ElideRight
-                            leftPadding: 12
-                            rightPadding: 12
+                            leftPadding: 14
+                            rightPadding: 40
                         }
 
-                        background: Rectangle {
-                            color: providerCombo.highlightedIndex === index ? "#1A2A3A" : panelColorAlt
-                            radius: 8
-                        }
-                    }
-
-                    popup: Popup {
-                        y: providerCombo.height + 6
-                        width: providerCombo.width
-                        implicitHeight: contentItem.implicitHeight + 2
-                        padding: 1
-
-                        contentItem: ListView {
-                            clip: true
-                            implicitHeight: contentHeight
-                            model: providerCombo.popup.visible ? providerCombo.delegateModel : null
-                            currentIndex: providerCombo.highlightedIndex
-                            ScrollIndicator.vertical: ScrollIndicator { }
+                        indicator: Text {
+                            x: providerCombo.width - width - 14
+                            y: (providerCombo.height - height) / 2
+                            text: providerCombo.popup.opened ? "▴" : "▾"
+                            color: providerCombo.hovered || providerCombo.popup.opened ? accentHover : mutedForeground
+                            font.pixelSize: 16
                         }
 
-                        background: Rectangle {
-                            color: panelColorAlt
-                            radius: root.radius
-                            border.width: 1
-                            border.color: borderActive
+                        delegate: ItemDelegate {
+                            width: providerCombo.width
+                            height: 38
+                            highlighted: providerCombo.highlightedIndex === index
+
+                            contentItem: Text {
+                                text: modelData
+                                color: providerCombo.currentIndex === index ? accent : foreground
+                                font.pixelSize: fontSizeNormal
+                                verticalAlignment: Text.AlignVCenter
+                                elide: Text.ElideRight
+                                leftPadding: 12
+                                rightPadding: 12
+                            }
+
+                            background: Rectangle {
+                                color: providerCombo.highlightedIndex === index ? "#1A2A3A" : panelColorAlt
+                                radius: 8
+                            }
+                        }
+
+                        popup: Popup {
+                            y: providerCombo.height + 6
+                            width: providerCombo.width
+                            implicitHeight: contentItem.implicitHeight + 2
+                            padding: 1
+
+                            contentItem: ListView {
+                                clip: true
+                                implicitHeight: contentHeight
+                                model: providerCombo.popup.visible ? providerCombo.delegateModel : null
+                                currentIndex: providerCombo.highlightedIndex
+                                ScrollIndicator.vertical: ScrollIndicator { }
+                            }
+
+                            background: Rectangle {
+                                color: panelColorAlt
+                                radius: root.radius
+                                border.width: 1
+                                border.color: borderActive
+                            }
                         }
                     }
                 }
