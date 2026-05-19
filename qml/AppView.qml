@@ -348,6 +348,7 @@ Item {
             api.apiKey = setting.apiKey
             api.model = setting.model
             api.apiServer = setting.apiServer
+            api.provider = setting.provider
         }
     }
     Connections{
@@ -360,6 +361,9 @@ Item {
         }
         function onModelChanged(){
             api.model = setting.model
+        }
+        function onProviderChanged(){
+            api.provider = setting.provider
         }
     }
 }

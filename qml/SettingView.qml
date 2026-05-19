@@ -4,15 +4,19 @@ import Updater
 import Controller
 
 Item {
+    id: root
     signal backClicked;
 
 
     property bool lock:false
+    property string selectedProvider: "openai"
+    readonly property bool isOllamaProvider: selectedProvider === "ollama"
 
     // 主题颜色定义
     readonly property color backgroundColor: "#1E1E1E"
     readonly property color foreground: "#D4D4D4"
     readonly property color accent: "#4EC9B0"
+    readonly property color accentHover: "#5ED9C0"
     readonly property color border: "#3E3E42"
     readonly property color backgroundSecondary: "#252526"
     readonly property int fontSizeNormal: 14
@@ -20,15 +24,39 @@ Item {
     readonly property real radius: 8
     
 
+    function providerFromIndex(index) {
+        return index === 1 ? "ollama" : "openai"
+    }
+
+    function providerIndex(provider) {
+        return provider === "ollama" ? 1 : 0
+    }
+
+    function applyProviderDefaults() {
+        var server = serverInput.text.trim()
+        if (isOllamaProvider && (server === "" || server === "https://api.openai.com")) {
+            serverInput.text = "http://localhost:11434/v1/chat/completions"
+        } else if (!isOllamaProvider && (server === "" || server === "http://localhost:11434/v1/chat/completions")) {
+            serverInput.text = "https://api.openai.com"
+        }
+    }
+
     function reload(){
         setting.loadConfig()
         lock = true
+        selectedProvider = setting.provider === "ollama" ? "ollama" : "openai"
+        providerCombo.currentIndex = providerIndex(selectedProvider)
         keyInput.text = setting.apiKey
         serverInput.text = setting.apiServer
         shortcutText.text = setting.shortCut
         modelInput.text = setting.model
-        
+
         lock = false
+        Qt.callLater(function() {
+            if (selectedProvider === "ollama" || keyInput.text.trim().length >= 10) {
+                detectModels()
+            }
+        })
 
     }
 
@@ -40,7 +68,12 @@ Item {
         setting.apiKey = keyInput.text
         setting.shortCut = shortcutText.text
         setting.model = modelInput.text.trim()
+        setting.provider = selectedProvider
         setting.updateConfig()
+    }
+
+    function detectModels(){
+        modelDetector.detectModels(serverInput.text.trim(), keyInput.text, selectedProvider)
     }
     MouseArea {
         anchors.fill: parent
@@ -78,10 +111,128 @@ Item {
 
     }
     Text{
-        id:serverText
+        id:providerText
         anchors.left: header.left
         anchors.top:header.bottom
         anchors.topMargin: 10
+        text:"Provider"
+        font.bold: true
+        color: accent
+    }
+
+    Item {
+        id:providerItem
+        anchors.left: header.left
+        anchors.right: header.right
+        anchors.top:providerText.bottom
+        anchors.topMargin: 10
+        height:40
+        ComboBox {
+            id: providerCombo
+            width: parent.width
+            height: parent.height
+            model: ["OpenAI", "Ollama"]
+            currentIndex: 0
+            font.pixelSize: fontSizeNormal
+
+            onCurrentIndexChanged: {
+                selectedProvider = providerFromIndex(currentIndex)
+                if (!lock) {
+                    applyProviderDefaults()
+                    saveConfig()
+                }
+            }
+
+            background: Rectangle {
+                color: backgroundSecondary
+                radius: root.radius
+                border.width: 1
+                border.color: border
+            }
+
+            contentItem: Text {
+                text: providerCombo.displayText
+                color: foreground
+                font.pixelSize: fontSizeNormal
+                verticalAlignment: Text.AlignVCenter
+                elide: Text.ElideRight
+                leftPadding: 10
+                rightPadding: providerCombo.indicator.width + 12
+            }
+
+            indicator: Canvas {
+                id: providerIndicator
+                x: providerCombo.width - width - 12
+                y: (providerCombo.height - height) / 2
+                width: 12
+                height: 8
+                contextType: "2d"
+
+                Connections {
+                    target: providerCombo
+                    function onPressedChanged() { providerIndicator.requestPaint() }
+                }
+
+                onPaint: {
+                    context.reset()
+                    context.moveTo(0, 0)
+                    context.lineTo(width, 0)
+                    context.lineTo(width / 2, height)
+                    context.closePath()
+                    context.fillStyle = providerCombo.pressed ? accentHover : foreground
+                    context.fill()
+                }
+            }
+
+            delegate: ItemDelegate {
+                width: providerCombo.width
+                height: 36
+                highlighted: providerCombo.highlightedIndex === index
+
+                contentItem: Text {
+                    text: modelData
+                    color: providerCombo.currentIndex === index ? accent : foreground
+                    font.pixelSize: fontSizeNormal
+                    verticalAlignment: Text.AlignVCenter
+                    elide: Text.ElideRight
+                    leftPadding: 10
+                    rightPadding: 10
+                }
+                background: Rectangle {
+                    color: providerCombo.highlightedIndex === index ? Qt.darker(backgroundSecondary, 1.15) : backgroundSecondary
+                    radius: root.radius
+                }
+            }
+
+            popup: Popup {
+                y: providerCombo.height + 2
+                width: providerCombo.width
+                implicitHeight: contentItem.implicitHeight
+                padding: 1
+
+                contentItem: ListView {
+                    clip: true
+                    implicitHeight: contentHeight
+                    model: providerCombo.popup.visible ? providerCombo.delegateModel : null
+                    currentIndex: providerCombo.highlightedIndex
+                    ScrollIndicator.vertical: ScrollIndicator { }
+                }
+
+                background: Rectangle {
+                    color: backgroundSecondary
+                    radius: root.radius
+                    border.width: 1
+                    border.color: border
+                }
+            }
+        }
+    }
+
+    Text{
+        id:serverText
+        anchors.left: header.left
+        anchors.top:providerItem.bottom
+        anchors.topMargin: 20
         text:"API Server"
         font.bold: true
         color: accent
@@ -121,6 +272,7 @@ Item {
         text:"API Key"
         font.bold: true
         color: accent
+        visible: !isOllamaProvider
     }
 
     ScrollView {
@@ -129,7 +281,8 @@ Item {
         anchors.right: header.right
         anchors.top:apiText.bottom
         anchors.topMargin: 10
-        height:80
+        height: visible ? 80 : 0
+        visible: !isOllamaProvider
         contentWidth: width
         contentHeight: keyInput.contentHeight + 20
         ScrollBar.vertical: ScrollBar {
@@ -159,7 +312,7 @@ Item {
     Text{
         id:modelText
         anchors.left: header.left
-        anchors.top:keyInputScroll.bottom
+        anchors.top:isOllamaProvider ? serverItem.bottom : keyInputScroll.bottom
         anchors.topMargin: 20
         text:"Model"
         font.bold: true
@@ -181,7 +334,10 @@ Item {
 
         TextInput {
             id:modelInput
-            anchors.fill: parent
+            anchors.left: parent.left
+            anchors.right: detectModelBtn.left
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
             padding:7
             text: "gpt-3.5-turbo"
             color: foreground
@@ -189,13 +345,99 @@ Item {
             onTextChanged: {
                 saveConfig()
             }
+            onActiveFocusChanged: {
+                if (activeFocus && modelDetector.availableModels.length > 0) {
+                    modelPopup.open()
+                }
+            }
         }
+
+        Button {
+            id: detectModelBtn
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            width: 88
+            text: modelDetector.isDetectingModels ? "Detecting" : "Detect"
+            enabled: !modelDetector.isDetectingModels
+            font.capitalization: Font.MixedCase
+            font.pixelSize: fontSizeNormal
+            onClicked: detectModels()
+            background: Rectangle {
+                color: detectModelBtn.enabled ? accent : border
+                radius: root.radius
+            }
+            contentItem: Text {
+                text: detectModelBtn.text
+                color: "white"
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                font.pixelSize: fontSizeNormal
+            }
+        }
+
+        Popup {
+            id: modelPopup
+            y: modelItem.height + 2
+            width: modelItem.width
+            implicitHeight: Math.min(modelList.contentHeight + 2, 180)
+            padding: 1
+            closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+            contentItem: ListView {
+                id: modelList
+                clip: true
+                implicitHeight: Math.min(contentHeight, 180)
+                model: modelDetector.availableModels
+                ScrollIndicator.vertical: ScrollIndicator { }
+                delegate: ItemDelegate {
+                    width: modelList.width
+                    height: 36
+                    contentItem: Text {
+                        text: modelData
+                        color: modelInput.text === modelData ? accent : foreground
+                        font.pixelSize: fontSizeNormal
+                        verticalAlignment: Text.AlignVCenter
+                        elide: Text.ElideRight
+                        leftPadding: 10
+                        rightPadding: 10
+                    }
+                    background: Rectangle {
+                        color: hovered ? Qt.darker(backgroundSecondary, 1.15) : backgroundSecondary
+                    }
+                    onClicked: {
+                        modelInput.text = modelData
+                        modelPopup.close()
+                        saveConfig()
+                    }
+                }
+            }
+
+            background: Rectangle {
+                color: backgroundSecondary
+                radius: root.radius
+                border.width: 1
+                border.color: border
+            }
+        }
+    }
+
+    Text{
+        id:modelDetectTip
+        anchors.left: header.left
+        anchors.right: header.right
+        anchors.top:modelItem.bottom
+        anchors.topMargin: 6
+        text: modelDetector.modelDetectError !== "" ? modelDetector.modelDetectError : (modelDetector.availableModels.length > 0 ? (modelDetector.availableModels.length + " models detected, click input to choose") : "")
+        color: modelDetector.modelDetectError !== "" ? "#F48771" : foreground
+        font.pixelSize: 12
+        elide: Text.ElideRight
     }
 
     Text{
         id:shortCutText
         anchors.left: header.left
-        anchors.top:modelItem.bottom
+        anchors.top:modelDetectTip.bottom
         anchors.topMargin: 20
         text:"Shortcut"
         font.bold: true
@@ -376,14 +618,27 @@ Item {
             anchors.horizontalCenter: parent.horizontalCenter
             height:checkBtn.height
             width:parent.width
+            color: "transparent"
             Button{
                 id:checkBtn
                 text:"check update"
                 font.capitalization: Font.MixedCase
                 height: 40
                 anchors.horizontalCenter: parent.horizontalCenter
-                Material.background: accent
-                Material.foreground :(Qt.platform.os === "linux")?backgroundColor:foreground //linux can't display button use software render
+                background: Rectangle {
+                    color: checkBtn.down ? Qt.darker(accent, 1.15) : accent
+                    radius: root.radius
+                    border.width: 1
+                    border.color: accent
+                }
+                contentItem: Text {
+                    text: checkBtn.text
+                    color: backgroundColor
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    font.pixelSize: fontSizeNormal
+                    font.capitalization: Font.MixedCase
+                }
                 onClicked: {
                     updater.check()
                 }
@@ -406,6 +661,8 @@ Item {
 
             visible:!updater.isRequesting
             text: "<u><a href='" + "https://www.google.com" + "'>" + updater.requestResult + "</a></u>"
+            color: accent
+            linkColor: accentHover
             onLinkActivated: Qt.openUrlExternally(updater.updateLink)
         }
         TextArea{
@@ -425,6 +682,15 @@ Item {
     }
 
 
+
+    APIController{
+        id:modelDetector
+        onAvailableModelsChanged: {
+            if (availableModels.length > 0) {
+                modelPopup.open()
+            }
+        }
+    }
 
     APIUpdater{
         id:updater

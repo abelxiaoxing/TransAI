@@ -1,5 +1,7 @@
 #include "controller.h"
 
+#include <algorithm>
+
 using namespace std;
 
 Setting::Setting(QObject * parent): QObject{parent}
@@ -8,6 +10,7 @@ Setting::Setting(QObject * parent): QObject{parent}
     _apiKey = "";
     _model = "";
     _shortCut = "";
+    _provider = "openai";
     //win C:\Users\xxxx\AppData\Local\TransAI
     //macos /Users/xxx/Library/Preferences/GPT_Translator/
     _configPath = QStandardPaths::locate(QStandardPaths::AppConfigLocation, "config.json", QStandardPaths::LocateFile);
@@ -53,8 +56,13 @@ bool Setting::loadConfig()
             _model = obj.value("model").toString();
             _apiServer = obj.value("apiServer").toString();
             _shortCut = obj.value("shortCut").toString();
+            _provider = obj.value("provider").toString("openai");
             if(_apiServer.trimmed().length() == 0){
-                _apiServer = "https://api.openai.com";
+                if(_provider == "ollama"){
+                    _apiServer = "http://localhost:11434/v1/chat/completions";
+                }else{
+                    _apiServer = "https://api.openai.com";
+                }
             }
             return true;
         }
@@ -64,7 +72,7 @@ bool Setting::loadConfig()
 
 void Setting::updateConfig()
 {
-    QString s = "{\"apiKey\":\"" + _apiKey + "\",\"model\":\"" + _model + "\", \"apiServer\":\"" + _apiServer + "\", \"shortCut\":\"" + _shortCut + "\"}";
+    QString s = "{\"apiKey\":\"" + _apiKey + "\",\"model\":\"" + _model + "\", \"apiServer\":\"" + _apiServer + "\", \"shortCut\":\"" + _shortCut + "\", \"provider\":\"" + _provider + "\"}";
     QFile file(_configPath);
     if(file.open(QIODevice::WriteOnly)){
         QTextStream out(&file);
@@ -84,7 +92,13 @@ Controller::Controller(QObject *parent)
     _apiServer = "";
     _apiKey = "";
     _model = "";
+    _provider = "openai";
+    _availableModels = QStringList();
+    _isDetectingModels = false;
+    _modelDetectError = "";
     networkManager = new QNetworkAccessManager(this);
+    reply = nullptr;
+    modelReply = nullptr;
     _themeController = new ThemeController(this);
 
 }
@@ -134,6 +148,80 @@ std::tuple<QString, bool> Controller::_parseResponse(QByteArray &ba)
 
 }
 
+QUrl Controller::_buildModelListUrl(const QString& apiServer, const QString& provider)
+{
+    if (provider == "ollama") {
+        QUrl url(apiServer.trimmed().isEmpty() ? "http://localhost:11434" : apiServer.trimmed());
+        if (url.path().contains("/v1/chat/completions")) {
+            url.setPath(url.path().replace("/v1/chat/completions", "/api/tags"));
+        } else if (url.path().contains("/api/chat")) {
+            url.setPath(url.path().replace("/api/chat", "/api/tags"));
+        } else if (!url.path().endsWith("/api/tags")) {
+            url.setPath("/api/tags");
+        }
+        url.setQuery(QString());
+        return url;
+    }
+
+    QUrl url(apiServer.trimmed().isEmpty() ? "https://api.openai.com" : apiServer.trimmed());
+    QString path = url.path();
+    if (path.endsWith("/chat/completions")) {
+        path = path.left(path.length() - QString("/chat/completions").length());
+    }
+    if (path.isEmpty() || path == "/") {
+        path = "/v1";
+    }
+    if (!path.endsWith("/models")) {
+        if (path.endsWith('/')) {
+            path.chop(1);
+        }
+        path += "/models";
+    }
+    url.setPath(path);
+    url.setQuery(QString());
+    return url;
+}
+
+QStringList Controller::_parseModelList(const QByteArray& data, const QString& provider, QString* errorMessage)
+{
+    QStringList models;
+    QJsonParseError parseError;
+    QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
+    if (doc.isNull() || !doc.isObject()) {
+        if (errorMessage) {
+            *errorMessage = parseError.errorString();
+        }
+        return models;
+    }
+
+    QJsonObject obj = doc.object();
+    if (obj.contains("error")) {
+        QJsonValue errorValue = obj.value("error");
+        if (errorMessage) {
+            if (errorValue.isObject()) {
+                *errorMessage = errorValue.toObject().value("message").toString("Failed to detect models");
+            } else {
+                *errorMessage = errorValue.toString("Failed to detect models");
+            }
+        }
+        return models;
+    }
+
+    QJsonArray modelArray = provider == "ollama" ? obj.value("models").toArray() : obj.value("data").toArray();
+    for (const QJsonValue& value : modelArray) {
+        QJsonObject modelObj = value.toObject();
+        QString id = provider == "ollama" ? modelObj.value("name").toString() : modelObj.value("id").toString();
+        if (!id.isEmpty() && !models.contains(id)) {
+            models.append(id);
+        }
+    }
+
+    std::sort(models.begin(), models.end(), [](const QString& a, const QString& b) {
+        return QString::localeAwareCompare(a, b) < 0;
+    });
+    return models;
+}
+
 
 void Controller::streamReceived()
 {
@@ -148,20 +236,80 @@ void Controller::streamReceived()
 }
 
 
+void Controller::detectModels(QString apiServer, QString apiKey, QString provider)
+{
+    if (modelReply) {
+        disconnect(modelReply, nullptr, this, nullptr);
+        modelReply->abort();
+        modelReply->deleteLater();
+        modelReply = nullptr;
+    }
+
+    QString normalizedProvider = provider == "ollama" ? "ollama" : "openai";
+    if (normalizedProvider != "ollama" && apiKey.trimmed().length() < 10) {
+        modelDetectError("Please provide the correct apikey");
+        availableModels(QStringList());
+        return;
+    }
+
+    modelDetectError("");
+    isDetectingModels(true);
+
+    QNetworkRequest request(_buildModelListUrl(apiServer, normalizedProvider));
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork);
+    if (normalizedProvider != "ollama") {
+        request.setRawHeader("Authorization", QString("Bearer %1").arg(apiKey.trimmed()).toUtf8());
+    }
+
+    modelReply = networkManager->get(request);
+    QNetworkReply* currentReply = modelReply;
+    connect(currentReply, &QNetworkReply::finished, this, [this, currentReply, normalizedProvider]() {
+        if (modelReply != currentReply) {
+            currentReply->deleteLater();
+            return;
+        }
+        modelReply = nullptr;
+        isDetectingModels(false);
+
+        QByteArray response = currentReply->readAll();
+        if (currentReply->error() == QNetworkReply::NoError) {
+            QString parseError;
+            QStringList models = _parseModelList(response, normalizedProvider, &parseError);
+            availableModels(models);
+            modelDetectError(models.isEmpty() ? (parseError.isEmpty() ? "No models found" : parseError) : "");
+        } else if (currentReply->error() != QNetworkReply::OperationCanceledError) {
+            QString parseError;
+            QStringList models = _parseModelList(response, normalizedProvider, &parseError);
+            availableModels(models);
+            modelDetectError(parseError.isEmpty() ? currentReply->errorString() : parseError);
+        }
+
+        currentReply->deleteLater();
+    });
+}
+
 void Controller::sendMessage(QString str, int mode)
 {
     if(_apiServer.trimmed().length() == 0){
-        _apiServer = "https://api.openai.com";
+        if(_provider == "ollama"){
+            _apiServer = "http://localhost:11434/v1/chat/completions";
+        }else{
+            _apiServer = "https://api.openai.com";
+        }
     }
 
-    if(_apiKey.length() < 10){
+    // Ollama doesn't require API key
+    if(_provider != "ollama" && _apiKey.length() < 10){
         responseError("Please provide the correct apikey");
         return;
     }
     QUrl apiUrl(_apiServer);
       QNetworkRequest request(apiUrl);
       request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-      request.setRawHeader("Authorization", QString::fromStdString("Bearer %1").arg(_apiKey.trimmed()).toUtf8());
+      if(_provider != "ollama"){
+          request.setRawHeader("Authorization", QString::fromStdString("Bearer %1").arg(_apiKey.trimmed()).toUtf8());
+      }
       request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork); // Events shouldn't be cached
 
       QJsonObject requestData;

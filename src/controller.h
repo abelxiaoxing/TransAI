@@ -20,6 +20,7 @@
 #include <QDebug>
 #include <QDir>
 #include <QQuickWindow>
+#include <QStringList>
 
 class Setting : public QObject
 {
@@ -28,6 +29,7 @@ class Setting : public QObject
     Q_PROPERTY_AUTO(QString,apiKey);
     Q_PROPERTY_AUTO(QString,model);
     Q_PROPERTY_AUTO(QString,shortCut);
+    Q_PROPERTY_AUTO(QString,provider);
 public:
     explicit Setting(QObject *parent = nullptr);
     Q_INVOKABLE bool loadConfig();
@@ -68,6 +70,10 @@ class Controller : public QObject
     Q_PROPERTY_AUTO(QString,apiServer);
     Q_PROPERTY_AUTO(QString,apiKey);
     Q_PROPERTY_AUTO(QString,model);
+    Q_PROPERTY_AUTO(QString,provider);
+    Q_PROPERTY_AUTO(QStringList,availableModels);
+    Q_PROPERTY_AUTO(bool,isDetectingModels);
+    Q_PROPERTY_AUTO(QString,modelDetectError);
     Q_PROPERTY(ThemeController* themeController READ themeController CONSTANT)
 
 
@@ -76,6 +82,7 @@ public:
 
     Q_INVOKABLE void sendMessage(QString str, int mode);
     Q_INVOKABLE void abort();
+    Q_INVOKABLE void detectModels(QString apiServer, QString apiKey, QString provider);
 
     ThemeController* themeController() const;
 
@@ -86,12 +93,15 @@ private slots:
 private:
     QNetworkAccessManager* networkManager;
     QNetworkReply* reply;
+    QNetworkReply* modelReply;
     QJsonObject createMessage(const QString& role,const QString& content);
     QString _data;
     std::tuple<QString, bool> _getContent(QString &str);
     std::tuple<QString, bool> _parseResponse(QByteArray &ba);
 
     QString _getError(QString &str);
+    QUrl _buildModelListUrl(const QString& apiServer, const QString& provider);
+    QStringList _parseModelList(const QByteArray& data, const QString& provider, QString* errorMessage);
 
     ThemeController* _themeController;
 
