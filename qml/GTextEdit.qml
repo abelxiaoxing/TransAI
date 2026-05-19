@@ -17,8 +17,11 @@ Flickable {
     readonly property int spacing: 8
 
 
-    contentWidth: width;
-    contentHeight: textedit.height
+    contentWidth: width
+    // Ensure the Flickable content area is at least as tall as the visible editor.
+    // Otherwise only the text's implicit height (usually the first line at the top)
+    // is clickable, and clicks in the empty lower part fall through to outer items.
+    contentHeight: Math.max(textedit.height, height)
     flickableDirection: Flickable.VerticalFlick
     clip: true
     function scrollToBottom() {
@@ -52,7 +55,7 @@ Flickable {
             if (mouse.button === Qt.LeftButton) {
                 // 计算点击位置对应的文本位置，处理空文本情况
                 var pos = textedit.length > 0 ?
-                    textedit.positionAt(mouse.x, mouse.y + flick.contentY) : 0;
+                    textedit.positionAt(mouse.x, mouse.y) : 0;
 
                 // 设置焦点和光标位置
                 textedit.forceActiveFocus();
@@ -69,6 +72,7 @@ Flickable {
         padding: flick.spacing
         wrapMode: TextEdit.WrapAnywhere
         width:flick.width
+        height: Math.max(implicitHeight, flick.height)
         font.pixelSize: flick.fontSizeNormal
         selectByMouse:true
         selectByKeyboard:true
