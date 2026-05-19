@@ -10,7 +10,10 @@ Item {
 
     property bool lock:false
     property string selectedProvider: "openai"
+    property string selectedModel: "gpt-3.5-turbo"
+    property bool openModelPopupAfterDetect: false
     readonly property bool isOllamaProvider: selectedProvider === "ollama"
+    readonly property string ollamaApiServer: "http://localhost:11434"
 
     // 主题颜色定义
     readonly property color backgroundColor: "#1E1E1E"
@@ -34,9 +37,9 @@ Item {
 
     function applyProviderDefaults() {
         var server = serverInput.text.trim()
-        if (isOllamaProvider && (server === "" || server === "https://api.openai.com")) {
-            serverInput.text = "http://localhost:11434/v1/chat/completions"
-        } else if (!isOllamaProvider && (server === "" || server === "http://localhost:11434/v1/chat/completions")) {
+        if (isOllamaProvider) {
+            serverInput.text = ollamaApiServer
+        } else if (server === "" || server === ollamaApiServer || server === ollamaApiServer + "/v1/chat/completions") {
             serverInput.text = "https://api.openai.com"
         }
     }
@@ -49,7 +52,10 @@ Item {
         keyInput.text = setting.apiKey
         serverInput.text = setting.apiServer
         shortcutText.text = setting.shortCut
-        modelInput.text = setting.model
+        selectedModel = setting.model.trim().length > 0 ? setting.model : "gpt-3.5-turbo"
+        openModelPopupAfterDetect = false
+        modelPopup.close()
+        applyProviderDefaults()
 
         lock = false
         Qt.callLater(function() {
@@ -64,16 +70,16 @@ Item {
         if(lock){
             return
         }
-        setting.apiServer = serverInput.text.trim()
+        setting.apiServer = isOllamaProvider ? ollamaApiServer : serverInput.text.trim()
         setting.apiKey = keyInput.text
         setting.shortCut = shortcutText.text
-        setting.model = modelInput.text.trim()
+        setting.model = selectedModel.trim()
         setting.provider = selectedProvider
         setting.updateConfig()
     }
 
     function detectModels(){
-        modelDetector.detectModels(serverInput.text.trim(), keyInput.text, selectedProvider)
+        modelDetector.detectModels(isOllamaProvider ? ollamaApiServer : serverInput.text.trim(), keyInput.text, selectedProvider)
     }
     MouseArea {
         anchors.fill: parent
@@ -137,6 +143,8 @@ Item {
 
             onCurrentIndexChanged: {
                 selectedProvider = providerFromIndex(currentIndex)
+                openModelPopupAfterDetect = false
+                modelPopup.close()
                 if (!lock) {
                     applyProviderDefaults()
                     saveConfig()
@@ -236,6 +244,7 @@ Item {
         text:"API Server"
         font.bold: true
         color: accent
+        visible: !isOllamaProvider
     }
 
     Item {
@@ -244,7 +253,8 @@ Item {
         anchors.right: header.right
         anchors.top:serverText.bottom
         anchors.topMargin: 10
-        height:30
+        height: visible ? 30 : 0
+        visible: !isOllamaProvider
         Rectangle {
             color: backgroundSecondary
             anchors.fill: parent
@@ -312,7 +322,7 @@ Item {
     Text{
         id:modelText
         anchors.left: header.left
-        anchors.top:isOllamaProvider ? serverItem.bottom : keyInputScroll.bottom
+        anchors.top:isOllamaProvider ? providerItem.bottom : keyInputScroll.bottom
         anchors.topMargin: 20
         text:"Model"
         font.bold: true
@@ -326,28 +336,50 @@ Item {
         anchors.top:modelText.bottom
         anchors.topMargin: 10
         height:30
-        Rectangle {
-            color: backgroundSecondary
-            anchors.fill: parent
-            radius: radius
-        }
-
-        TextInput {
-            id:modelInput
+        Button {
+            id:modelSelectBtn
             anchors.left: parent.left
             anchors.right: detectModelBtn.left
             anchors.top: parent.top
             anchors.bottom: parent.bottom
-            padding:7
-            text: "gpt-3.5-turbo"
-            color: foreground
-            font.pixelSize: fontSizeNormal
-            onTextChanged: {
-                saveConfig()
-            }
-            onActiveFocusChanged: {
-                if (activeFocus && modelDetector.availableModels.length > 0) {
+            hoverEnabled: true
+            font.capitalization: Font.MixedCase
+            onClicked: {
+                if (modelDetector.availableModels.length > 0) {
                     modelPopup.open()
+                } else if (!modelDetector.isDetectingModels) {
+                    openModelPopupAfterDetect = true
+                    detectModels()
+                }
+            }
+            background: Rectangle {
+                color: modelSelectBtn.down ? Qt.darker(backgroundSecondary, 1.2) : (modelSelectBtn.hovered || modelPopup.opened ? Qt.darker(backgroundSecondary, 1.08) : backgroundSecondary)
+                radius: root.radius
+                border.width: 1
+                border.color: modelPopup.opened ? accent : (modelSelectBtn.hovered ? accentHover : border)
+            }
+            contentItem: Item {
+                Text {
+                    anchors.left: parent.left
+                    anchors.right: arrowText.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.leftMargin: 10
+                    anchors.rightMargin: 8
+                    text: selectedModel.length > 0 ? selectedModel : (modelDetector.availableModels.length > 0 ? "Select model" : "Detect models first")
+                    color: selectedModel.length > 0 ? foreground : Qt.darker(foreground, 1.35)
+                    font.pixelSize: fontSizeNormal
+                    verticalAlignment: Text.AlignVCenter
+                    elide: Text.ElideRight
+                }
+                Text {
+                    id: arrowText
+                    anchors.right: parent.right
+                    anchors.rightMargin: 10
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: modelPopup.opened ? "▴" : "▾"
+                    color: modelSelectBtn.hovered || modelPopup.opened ? accentHover : foreground
+                    font.pixelSize: 16
+                    verticalAlignment: Text.AlignVCenter
                 }
             }
         }
@@ -362,7 +394,10 @@ Item {
             enabled: !modelDetector.isDetectingModels
             font.capitalization: Font.MixedCase
             font.pixelSize: fontSizeNormal
-            onClicked: detectModels()
+            onClicked: {
+                openModelPopupAfterDetect = false
+                detectModels()
+            }
             background: Rectangle {
                 color: detectModelBtn.enabled ? accent : border
                 radius: root.radius
@@ -378,8 +413,9 @@ Item {
 
         Popup {
             id: modelPopup
+            x: modelSelectBtn.x
             y: modelItem.height + 2
-            width: modelItem.width
+            width: modelSelectBtn.width
             implicitHeight: Math.min(modelList.contentHeight + 2, 180)
             padding: 1
             closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
@@ -395,7 +431,7 @@ Item {
                     height: 36
                     contentItem: Text {
                         text: modelData
-                        color: modelInput.text === modelData ? accent : foreground
+                        color: selectedModel === modelData ? accent : foreground
                         font.pixelSize: fontSizeNormal
                         verticalAlignment: Text.AlignVCenter
                         elide: Text.ElideRight
@@ -406,7 +442,7 @@ Item {
                         color: hovered ? Qt.darker(backgroundSecondary, 1.15) : backgroundSecondary
                     }
                     onClicked: {
-                        modelInput.text = modelData
+                        selectedModel = modelData
                         modelPopup.close()
                         saveConfig()
                     }
@@ -428,7 +464,7 @@ Item {
         anchors.right: header.right
         anchors.top:modelItem.bottom
         anchors.topMargin: 6
-        text: modelDetector.modelDetectError !== "" ? modelDetector.modelDetectError : (modelDetector.availableModels.length > 0 ? (modelDetector.availableModels.length + " models detected, click input to choose") : "")
+        text: modelDetector.modelDetectError !== "" ? modelDetector.modelDetectError : (modelDetector.availableModels.length > 0 ? (modelDetector.availableModels.length + " models detected, click Model to choose") : "")
         color: modelDetector.modelDetectError !== "" ? "#F48771" : foreground
         font.pixelSize: 12
         elide: Text.ElideRight
@@ -686,8 +722,14 @@ Item {
     APIController{
         id:modelDetector
         onAvailableModelsChanged: {
-            if (availableModels.length > 0) {
+            if (openModelPopupAfterDetect && availableModels.length > 0) {
                 modelPopup.open()
+                openModelPopupAfterDetect = false
+            }
+        }
+        onIsDetectingModelsChanged: {
+            if (!isDetectingModels && availableModels.length === 0) {
+                openModelPopupAfterDetect = false
             }
         }
     }

@@ -57,12 +57,10 @@ bool Setting::loadConfig()
             _apiServer = obj.value("apiServer").toString();
             _shortCut = obj.value("shortCut").toString();
             _provider = obj.value("provider").toString("openai");
-            if(_apiServer.trimmed().length() == 0){
-                if(_provider == "ollama"){
-                    _apiServer = "http://localhost:11434/v1/chat/completions";
-                }else{
-                    _apiServer = "https://api.openai.com";
-                }
+            if(_provider == "ollama"){
+                _apiServer = "http://localhost:11434";
+            } else if(_apiServer.trimmed().length() == 0){
+                _apiServer = "https://api.openai.com";
             }
             return true;
         }
@@ -151,7 +149,7 @@ std::tuple<QString, bool> Controller::_parseResponse(QByteArray &ba)
 QUrl Controller::_buildModelListUrl(const QString& apiServer, const QString& provider)
 {
     if (provider == "ollama") {
-        QUrl url(apiServer.trimmed().isEmpty() ? "http://localhost:11434" : apiServer.trimmed());
+        QUrl url("http://localhost:11434");
         if (url.path().contains("/v1/chat/completions")) {
             url.setPath(url.path().replace("/v1/chat/completions", "/api/tags"));
         } else if (url.path().contains("/api/chat")) {
@@ -293,7 +291,7 @@ void Controller::sendMessage(QString str, int mode)
 {
     if(_apiServer.trimmed().length() == 0){
         if(_provider == "ollama"){
-            _apiServer = "http://localhost:11434/v1/chat/completions";
+            _apiServer = "http://localhost:11434";
         }else{
             _apiServer = "https://api.openai.com";
         }
@@ -304,7 +302,7 @@ void Controller::sendMessage(QString str, int mode)
         responseError("Please provide the correct apikey");
         return;
     }
-    QUrl apiUrl(_apiServer);
+    QUrl apiUrl(_provider == "ollama" ? "http://localhost:11434/v1/chat/completions" : _apiServer);
       QNetworkRequest request(apiUrl);
       request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
       if(_provider != "ollama"){
