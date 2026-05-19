@@ -11,6 +11,11 @@ const char kConfigFileName[] = "config.json";
 const char kApiServerKey[] = "apiServer";
 const char kApiKeyKey[] = "apiKey";
 const char kModelKey[] = "model";
+const char kOpenAIApiServerKey[] = "openaiApiServer";
+const char kOpenAIModelKey[] = "openaiModel";
+const char kOpenAIApiKeyKey[] = "openaiApiKey";
+const char kOllamaApiServerKey[] = "ollamaApiServer";
+const char kOllamaModelKey[] = "ollamaModel";
 const char kShortCutKey[] = "shortCut";
 const char kProviderKey[] = "provider";
 const char kDefaultApiServer[] = "https://api.openai.com";
@@ -69,11 +74,14 @@ bool ensureConfigDirExists(const QString& configPath)
 
 Setting::Setting(QObject * parent): QObject{parent}
 {
-    _apiServer = kDefaultApiServer;
-    _apiKey = "";
-    _model = "gpt-3.5-turbo";
+    _openaiApiServer = kDefaultApiServer;
+    _openaiApiKey = "";
+    _openaiModel = "gpt-3.5-turbo";
+    _ollamaApiServer = kDefaultOllamaApiServer;
+    _ollamaModel = "";
     _shortCut = "";
     _provider = "openai";
+    applyActiveProviderConfig();
     _configPath = resolveConfigPath();
     if (_configPath.isEmpty()) {
         assert("no writeable location found");
@@ -119,20 +127,70 @@ bool Setting::loadConfig()
     }
 
    QJsonObject obj = doc.object();
-   _apiKey = obj.value(kApiKeyKey).toString();
-   _model = obj.value(kModelKey).toString();
-   _apiServer = obj.value(kApiServerKey).toString();
-   _shortCut = obj.value(kShortCutKey).toString();
+   const QString legacyApiServer = obj.value(kApiServerKey).toString();
+   const QString legacyApiKey = obj.value(kApiKeyKey).toString();
+   const QString legacyModel = obj.value(kModelKey).toString();
    _provider = obj.value(kProviderKey).toString("openai");
-   if (_model.trimmed().isEmpty()) {
-       _model = "gpt-3.5-turbo";
+   if (_provider != "openai" && _provider != "ollama") {
+       _provider = "openai";
    }
-   if (_provider == "ollama") {
-       _apiServer = kDefaultOllamaApiServer;
-   } else if (_apiServer.trimmed().isEmpty()) {
-       _apiServer = kDefaultApiServer;
+   _openaiApiServer = obj.value(kOpenAIApiServerKey).toString();
+   if (_openaiApiServer.trimmed().isEmpty() && obj.contains(kOpenAIApiServerKey)) {
+       _openaiApiServer = "";
+   } else if (_openaiApiServer.trimmed().isEmpty()) {
+       _openaiApiServer = _provider == "openai"
+           ? (legacyApiServer.trimmed().isEmpty() ? kDefaultApiServer : legacyApiServer.trimmed())
+           : kDefaultApiServer;
    }
+   _openaiApiKey = obj.value(kOpenAIApiKeyKey).toString();
+   if (_openaiApiKey.trimmed().isEmpty() && !obj.contains(kOpenAIApiKeyKey)) {
+       _openaiApiKey = legacyApiKey;
+   }
+   _openaiModel = obj.value(kOpenAIModelKey).toString();
+   if (_openaiModel.trimmed().isEmpty() && !obj.contains(kOpenAIModelKey)) {
+       _openaiModel = _provider == "openai"
+           ? (legacyModel.trimmed().isEmpty() ? "gpt-3.5-turbo" : legacyModel.trimmed())
+           : "gpt-3.5-turbo";
+   }
+   _ollamaApiServer = obj.value(kOllamaApiServerKey).toString();
+   if (_ollamaApiServer.trimmed().isEmpty()) {
+       _ollamaApiServer = kDefaultOllamaApiServer;
+   }
+   _ollamaModel = obj.value(kOllamaModelKey).toString();
+   _shortCut = obj.value(kShortCutKey).toString();
+   applyActiveProviderConfig();
    return true;
+}
+
+void Setting::applyProviderConfig(QString provider)
+{
+    _provider = provider == "ollama" ? "ollama" : "openai";
+    applyActiveProviderConfig();
+}
+
+void Setting::applyActiveProviderConfig()
+{
+   providerChanged();
+   const QString nextApiServer = _provider == "ollama"
+       ? (_ollamaApiServer.trimmed().isEmpty() ? kDefaultOllamaApiServer : _ollamaApiServer)
+       : (_openaiApiServer.trimmed().isEmpty() ? kDefaultApiServer : _openaiApiServer);
+   const QString nextApiKey = _openaiApiKey;
+   const QString nextModel = _provider == "ollama"
+       ? _ollamaModel
+       : (_openaiModel.trimmed().isEmpty() ? "gpt-3.5-turbo" : _openaiModel);
+
+   if (_apiServer != nextApiServer) {
+       _apiServer = nextApiServer;
+       apiServerChanged();
+   }
+   if (_apiKey != nextApiKey) {
+       _apiKey = nextApiKey;
+       apiKeyChanged();
+   }
+   if (_model != nextModel) {
+       _model = nextModel;
+       modelChanged();
+   }
 }
 
 void Setting::updateConfig()
@@ -142,11 +200,16 @@ void Setting::updateConfig()
     }
 
     QJsonObject obj{
-        {kApiKeyKey, _apiKey},
-        {kModelKey, _model},
-        {kApiServerKey, _apiServer},
+        {kApiKeyKey, _openaiApiKey},
+        {kModelKey, _provider == "ollama" ? _ollamaModel : _openaiModel},
+        {kApiServerKey, _provider == "ollama" ? _ollamaApiServer : _openaiApiServer},
         {kShortCutKey, _shortCut},
         {kProviderKey, _provider},
+        {kOpenAIApiServerKey, _openaiApiServer},
+        {kOpenAIApiKeyKey, _openaiApiKey},
+        {kOpenAIModelKey, _openaiModel},
+        {kOllamaApiServerKey, _ollamaApiServer},
+        {kOllamaModelKey, _ollamaModel},
     };
     const QJsonDocument doc(obj);
     QSaveFile file(_configPath);
@@ -256,6 +319,35 @@ QUrl Controller::_buildModelListUrl(const QString& apiServer, const QString& pro
         }
         path += "/models";
     }
+    url.setPath(path);
+    url.setQuery(QString());
+    return url;
+}
+
+QUrl Controller::_buildChatCompletionUrl(const QString& apiServer) const
+{
+    QUrl url(apiServer.trimmed().isEmpty() ? "https://api.openai.com" : apiServer.trimmed());
+    QString path = url.path().trimmed();
+    if (path.isEmpty() || path == "/") {
+        path = "/v1/chat/completions";
+    } else {
+        if (path.endsWith('/')) {
+            path.chop(1);
+        }
+
+        if (path.endsWith("/chat/completions")) {
+            // already correct
+        } else if (path.endsWith("/models")) {
+            path = path.left(path.length() - QString("/models").length()) + "/chat/completions";
+        } else if (path.endsWith("/v1")) {
+            path += "/chat/completions";
+        } else if (path.endsWith("/chat")) {
+            path += "/completions";
+        } else {
+            path += "/chat/completions";
+        }
+    }
+
     url.setPath(path);
     url.setQuery(QString());
     return url;
@@ -383,13 +475,15 @@ void Controller::sendMessage(QString str, int mode)
         responseError("Please provide the correct apikey");
         return;
     }
-    QUrl apiUrl(_provider == "ollama" ? "http://localhost:11434/v1/chat/completions" : _apiServer);
-      QNetworkRequest request(apiUrl);
-      request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-      if(_provider != "ollama"){
-          request.setRawHeader("Authorization", QString::fromStdString("Bearer %1").arg(_apiKey.trimmed()).toUtf8());
-      }
-      request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork); // Events shouldn't be cached
+    QUrl apiUrl = _provider == "ollama"
+                  ? QUrl("http://localhost:11434/v1/chat/completions")
+                  : _buildChatCompletionUrl(_apiServer);
+    QNetworkRequest request(apiUrl);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    if(_provider != "ollama"){
+        request.setRawHeader("Authorization", QString::fromStdString("Bearer %1").arg(_apiKey.trimmed()).toUtf8());
+    }
+    request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork); // Events shouldn't be cached
 
       QJsonObject requestData;
       QJsonArray messages;

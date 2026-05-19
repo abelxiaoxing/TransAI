@@ -11,6 +11,10 @@ Item {
     property string selectedProvider: "openai"
     property string selectedModel: "gpt-3.5-turbo"
     property bool openModelPopupAfterDetect: false
+    property bool switchingProvider: false
+    property string autoDetectServer: ""
+    property string autoDetectKey: ""
+    property string autoDetectProvider: ""
     property string shortcutBeforeRecording: ""
     property bool shortcutRecordingAccepted: false
     readonly property bool isOllamaProvider: selectedProvider === "ollama"
@@ -47,12 +51,33 @@ Item {
         return provider === "ollama" ? 1 : 0
     }
 
-    function applyProviderDefaults() {
-        var server = serverInput.text.trim()
-        if (isOllamaProvider) {
-            serverInput.text = ollamaApiServer
-        } else if (server === "" || server === ollamaApiServer || server === ollamaApiServer + "/v1/chat/completions") {
-            serverInput.text = "https://api.openai.com"
+    function normalizedApiServer() {
+        return serverInput.text.trim().length > 0 ? serverInput.text.trim() : "https://api.openai.com"
+    }
+
+    function applyProviderSettings(provider) {
+        var isOllama = provider === "ollama"
+        selectedProvider = isOllama ? "ollama" : "openai"
+        openModelPopupAfterDetect = false
+        modelPopup.close()
+
+        if (isOllama) {
+            serverInput.text = setting.ollamaApiServer.trim().length > 0 ? setting.ollamaApiServer : ollamaApiServer
+            selectedModel = setting.ollamaModel.trim().length > 0 ? setting.ollamaModel : ""
+        } else {
+            serverInput.text = setting.openaiApiServer.trim().length > 0 ? setting.openaiApiServer : "https://api.openai.com"
+            keyInput.text = setting.openaiApiKey
+            selectedModel = setting.openaiModel.trim().length > 0 ? setting.openaiModel : "gpt-3.5-turbo"
+        }
+        setting.applyProviderConfig(selectedProvider)
+    }
+
+    function persistCurrentModel() {
+        const model = selectedModel.trim()
+        if (selectedProvider === "ollama") {
+            setting.ollamaModel = model
+        } else {
+            setting.openaiModel = model.length > 0 ? model : "gpt-3.5-turbo"
         }
     }
 
@@ -61,13 +86,15 @@ Item {
         setting.loadConfig()
         selectedProvider = setting.provider === "ollama" ? "ollama" : "openai"
         providerCombo.currentIndex = providerIndex(selectedProvider)
-        keyInput.text = setting.apiKey
-        serverInput.text = setting.apiServer
+        applyProviderSettings(selectedProvider)
+        keyInput.text = setting.openaiApiKey
         shortcutText.text = setting.shortCut
-        selectedModel = setting.model.trim().length > 0 ? setting.model : "gpt-3.5-turbo"
+        selectedModel = isOllamaProvider ? setting.ollamaModel : setting.openaiModel
+        if (selectedModel.trim().length === 0 && !isOllamaProvider) {
+            selectedModel = "gpt-3.5-turbo"
+        }
         openModelPopupAfterDetect = false
         modelPopup.close()
-        applyProviderDefaults()
 
         configLoaded = true
         lock = false
@@ -82,16 +109,40 @@ Item {
         if (lock || !configLoaded) {
             return
         }
-        setting.apiServer = isOllamaProvider ? ollamaApiServer : serverInput.text.trim()
-        setting.apiKey = keyInput.text
+        if (isOllamaProvider) {
+            setting.ollamaApiServer = ollamaApiServer
+            setting.ollamaModel = selectedModel.trim()
+        } else {
+            const server = serverInput.text.trim().length > 0 ? serverInput.text.trim() : "https://api.openai.com"
+            setting.openaiApiServer = server
+            setting.openaiApiKey = keyInput.text
+            setting.openaiModel = selectedModel.trim().length > 0 ? selectedModel.trim() : "gpt-3.5-turbo"
+        }
         setting.shortCut = shortcutText.text
-        setting.model = selectedModel.trim()
-        setting.provider = selectedProvider
+        setting.applyProviderConfig(selectedProvider)
         setting.updateConfig()
     }
 
     function detectModels() {
         modelDetector.detectModels(isOllamaProvider ? ollamaApiServer : serverInput.text.trim(), keyInput.text, selectedProvider)
+    }
+
+    function queueAutoDetectModels() {
+        if (lock || !configLoaded) {
+            return
+        }
+        const server = isOllamaProvider ? ollamaApiServer : normalizedApiServer()
+        const key = isOllamaProvider ? "" : keyInput.text.trim()
+        if (!isOllamaProvider && key.length < 10) {
+            return
+        }
+        if (autoDetectProvider === selectedProvider && autoDetectServer === server && autoDetectKey === key) {
+            return
+        }
+        autoDetectProvider = selectedProvider
+        autoDetectServer = server
+        autoDetectKey = key
+        autoDetectTimer.restart()
     }
 
     function keyNameFromEvent(event) {
@@ -289,12 +340,14 @@ Item {
                         hoverEnabled: true
 
                         onCurrentIndexChanged: {
-                            selectedProvider = providerFromIndex(currentIndex)
-                            openModelPopupAfterDetect = false
-                            modelPopup.close()
                             if (!lock) {
-                                applyProviderDefaults()
+                                persistCurrentModel()
+                                switchingProvider = true
+                                selectedProvider = providerFromIndex(currentIndex)
+                                applyProviderSettings(selectedProvider)
                                 saveConfig()
+                                switchingProvider = false
+                                queueAutoDetectModels()
                             }
                         }
 
@@ -397,7 +450,12 @@ Item {
                             rightPadding: 14
                             verticalAlignment: TextInput.AlignVCenter
                             selectByMouse: true
-                            onTextChanged: saveConfig()
+                            onTextChanged: {
+                                if (!lock && !switchingProvider) {
+                                    saveConfig()
+                                    queueAutoDetectModels()
+                                }
+                            }
 
                             background: Rectangle {
                                 color: serverInput.activeFocus ? "#152332" : fieldColor
@@ -450,7 +508,12 @@ Item {
                                 bottomPadding: 10
                                 leftPadding: 14
                                 rightPadding: 14
-                                onTextChanged: saveConfig()
+                                onTextChanged: {
+                                    if (!lock && !switchingProvider) {
+                                        saveConfig()
+                                        queueAutoDetectModels()
+                                    }
+                                }
 
                                 background: Rectangle {
                                     color: keyInput.activeFocus ? "#152332" : fieldColor
@@ -500,7 +563,7 @@ Item {
                             selectByMouse: true
                             onTextChanged: {
                                 selectedModel = text.trim()
-                                if (!lock) {
+                                if (!lock && !switchingProvider) {
                                     saveConfig()
                                 }
                             }
@@ -803,6 +866,21 @@ Item {
             if (!isDetectingModels && availableModels.length === 0) {
                 openModelPopupAfterDetect = false
             }
+        }
+    }
+
+    Timer {
+        id: autoDetectTimer
+        interval: 700
+        repeat: false
+        onTriggered: {
+            if (!isOllamaProvider && keyInput.text.trim().length < 10) {
+                return
+            }
+            if (autoDetectProvider !== selectedProvider) {
+                return
+            }
+            detectModels()
         }
     }
 

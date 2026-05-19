@@ -30,12 +30,19 @@ class Setting : public QObject
     Q_PROPERTY_AUTO(QString,model);
     Q_PROPERTY_AUTO(QString,shortCut);
     Q_PROPERTY_AUTO(QString,provider);
+    Q_PROPERTY_AUTO(QString,openaiApiServer);
+    Q_PROPERTY_AUTO(QString,openaiApiKey);
+    Q_PROPERTY_AUTO(QString,openaiModel);
+    Q_PROPERTY_AUTO(QString,ollamaApiServer);
+    Q_PROPERTY_AUTO(QString,ollamaModel);
 public:
     explicit Setting(QObject *parent = nullptr);
     Q_INVOKABLE bool loadConfig();
     Q_INVOKABLE void updateConfig();
+    Q_INVOKABLE void applyProviderConfig(QString provider);
 
 private:
+    void applyActiveProviderConfig();
     QString _configPath;
 };
 
@@ -101,6 +108,7 @@ private:
 
     QString _getError(QString &str);
     QUrl _buildModelListUrl(const QString& apiServer, const QString& provider);
+    QUrl _buildChatCompletionUrl(const QString& apiServer) const;
     QStringList _parseModelList(const QByteArray& data, const QString& provider, QString* errorMessage);
 
     ThemeController* _themeController;
