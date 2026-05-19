@@ -1,81 +1,162 @@
 #include "controller.h"
 
 #include <algorithm>
+#include <QJsonParseError>
+#include <QSaveFile>
 
 using namespace std;
 
+namespace {
+const char kConfigFileName[] = "config.json";
+const char kApiServerKey[] = "apiServer";
+const char kApiKeyKey[] = "apiKey";
+const char kModelKey[] = "model";
+const char kShortCutKey[] = "shortCut";
+const char kProviderKey[] = "provider";
+const char kDefaultApiServer[] = "https://api.openai.com";
+const char kDefaultOllamaApiServer[] = "http://localhost:11434";
+
+QStringList existingConfigCandidates()
+{
+    QStringList candidates;
+    const QStringList appConfigDirs = QStandardPaths::standardLocations(QStandardPaths::AppConfigLocation);
+    for (const QString& baseDir : appConfigDirs) {
+        if (!baseDir.isEmpty()) {
+            candidates << QDir(baseDir).filePath(kConfigFileName);
+        }
+    }
+
+    const QString located = QStandardPaths::locate(QStandardPaths::AppConfigLocation, kConfigFileName, QStandardPaths::LocateFile);
+    if (!located.isEmpty()) {
+        candidates.prepend(located);
+    }
+    return candidates;
+}
+
+QString resolveConfigPath()
+{
+    for (const QString& path : existingConfigCandidates()) {
+        if (!path.isEmpty() && QFileInfo(path).exists() && QFileInfo(path).isFile()) {
+            return path;
+        }
+    }
+
+    const QString writableDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+    if (writableDir.isEmpty()) {
+        return QString();
+    }
+    return QDir(writableDir).filePath(kConfigFileName);
+}
+
+void backupIfInvalidConfig(const QString& path)
+{
+    if (!QFileInfo(path).exists() || path.isEmpty()) {
+        return;
+    }
+    const QString backupPath = path + ".invalid.bak";
+    if (QFileInfo(backupPath).exists()) {
+        return;
+    }
+    QFile::copy(path, backupPath);
+}
+
+bool ensureConfigDirExists(const QString& configPath)
+{
+    const QFileInfo info(configPath);
+    return info.dir().exists() || info.dir().mkpath(".");
+}
+}
+
 Setting::Setting(QObject * parent): QObject{parent}
 {
-    _apiServer = "";
+    _apiServer = kDefaultApiServer;
     _apiKey = "";
-    _model = "";
+    _model = "gpt-3.5-turbo";
     _shortCut = "";
     _provider = "openai";
-    //win C:\Users\xxxx\AppData\Local\TransAI
-    //macos /Users/xxx/Library/Preferences/GPT_Translator/
-    _configPath = QStandardPaths::locate(QStandardPaths::AppConfigLocation, "config.json", QStandardPaths::LocateFile);
-    if(_configPath == ""){
-        if(QStandardPaths::standardLocations(QStandardPaths::AppConfigLocation).length() > 0){
-            QString path = QStandardPaths::standardLocations(QStandardPaths::AppConfigLocation).at(0);
-            QDir dir(path);
-            if (!dir.exists()){
-                dir.mkdir(path);
-                qDebug() << "mkdir:" << path;
-            }
-            _configPath = path + "/config.json";
+    _configPath = resolveConfigPath();
+    if (_configPath.isEmpty()) {
+        assert("no writeable location found");
+        return;
+    }
 
-        }else{
-            assert("no writeable location found");
-            return;
-        }
-    }else{
-        loadConfig();
+    if (!ensureConfigDirExists(_configPath)) {
+        qWarning() << "Failed to create config directory:" << _configPath;
+        return;
     }
 
     QFile configFile(_configPath);
-    qDebug() << QStandardPaths::displayName(QStandardPaths::AppConfigLocation);
-
-    if(!configFile.exists()){
+    if (configFile.exists()) {
+        if (!loadConfig()) {
+            backupIfInvalidConfig(_configPath);
+            qWarning() << "Invalid config file is kept and backed up to .invalid.bak:" << _configPath;
+        }
+    } else {
         updateConfig();
     }
 }
 
 bool Setting::loadConfig()
 {
-   QFile file(_configPath);
-   string content = "";
-   if(file.open(QIODevice::ReadOnly)){
-       content = file.readAll().toStdString();
-       file.close();
-   }
-   QJsonDocument doc = QJsonDocument::fromJson(QString::fromStdString(content).toUtf8());
-    if (!doc.isNull()) {
-        if (doc.isObject()) {
-            QJsonObject obj = doc.object();
-            _apiKey = obj.value("apiKey").toString();
-            _model = obj.value("model").toString();
-            _apiServer = obj.value("apiServer").toString();
-            _shortCut = obj.value("shortCut").toString();
-            _provider = obj.value("provider").toString("openai");
-            if(_provider == "ollama"){
-                _apiServer = "http://localhost:11434";
-            } else if(_apiServer.trimmed().length() == 0){
-                _apiServer = "https://api.openai.com";
-            }
-            return true;
-        }
+    QFile file(_configPath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        qWarning() << "Failed to open config file for read:" << _configPath;
+        return false;
     }
-    return false;
+
+    QJsonParseError parseError{};
+    QByteArray rawData = file.readAll();
+    file.close();
+    if (rawData.startsWith("\xEF\xBB\xBF")) {
+        rawData.remove(0, 3);
+    }
+
+    const QJsonDocument doc = QJsonDocument::fromJson(rawData.trimmed(), &parseError);
+
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+        qWarning() << "Invalid config JSON:" << parseError.errorString() << _configPath;
+        return false;
+    }
+
+   QJsonObject obj = doc.object();
+   _apiKey = obj.value(kApiKeyKey).toString();
+   _model = obj.value(kModelKey).toString();
+   _apiServer = obj.value(kApiServerKey).toString();
+   _shortCut = obj.value(kShortCutKey).toString();
+   _provider = obj.value(kProviderKey).toString("openai");
+   if (_model.trimmed().isEmpty()) {
+       _model = "gpt-3.5-turbo";
+   }
+   if (_provider == "ollama") {
+       _apiServer = kDefaultOllamaApiServer;
+   } else if (_apiServer.trimmed().isEmpty()) {
+       _apiServer = kDefaultApiServer;
+   }
+   return true;
 }
 
 void Setting::updateConfig()
 {
-    QString s = "{\"apiKey\":\"" + _apiKey + "\",\"model\":\"" + _model + "\", \"apiServer\":\"" + _apiServer + "\", \"shortCut\":\"" + _shortCut + "\", \"provider\":\"" + _provider + "\"}";
-    QFile file(_configPath);
-    if(file.open(QIODevice::WriteOnly)){
-        QTextStream out(&file);
-        out << s;
-        file.close();
+    if (_configPath.isEmpty()) {
+        return;
+    }
+
+    QJsonObject obj{
+        {kApiKeyKey, _apiKey},
+        {kModelKey, _model},
+        {kApiServerKey, _apiServer},
+        {kShortCutKey, _shortCut},
+        {kProviderKey, _provider},
+    };
+    const QJsonDocument doc(obj);
+    QSaveFile file(_configPath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+        qWarning() << "Failed to open config file for write:" << _configPath;
+        return;
+    }
+    file.write(doc.toJson(QJsonDocument::Compact));
+    if (!file.commit()) {
+        qWarning() << "Failed to commit config file:" << file.errorString();
     }
 }
 

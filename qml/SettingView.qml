@@ -6,7 +6,8 @@ Item {
     id: root
     signal backClicked
 
-    property bool lock: false
+    property bool lock: true
+    property bool configLoaded: false
     property string selectedProvider: "openai"
     property string selectedModel: "gpt-3.5-turbo"
     property bool openModelPopupAfterDetect: false
@@ -56,8 +57,8 @@ Item {
     }
 
     function reload() {
-        setting.loadConfig()
         lock = true
+        setting.loadConfig()
         selectedProvider = setting.provider === "ollama" ? "ollama" : "openai"
         providerCombo.currentIndex = providerIndex(selectedProvider)
         keyInput.text = setting.apiKey
@@ -68,6 +69,7 @@ Item {
         modelPopup.close()
         applyProviderDefaults()
 
+        configLoaded = true
         lock = false
         Qt.callLater(function() {
             if (selectedProvider === "ollama" || keyInput.text.trim().length >= 10) {
@@ -77,7 +79,7 @@ Item {
     }
 
     function saveConfig() {
-        if (lock) {
+        if (lock || !configLoaded) {
             return
         }
         setting.apiServer = isOllamaProvider ? ollamaApiServer : serverInput.text.trim()
