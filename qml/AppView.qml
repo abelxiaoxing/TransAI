@@ -32,8 +32,9 @@ Item {
     readonly property color error: "#F48771"
     readonly property color success: "#4EC9B0"
     readonly property color warning: "#FFD166"
-    readonly property int fontSizeNormal: 14
-    readonly property int fontSizeLarge: 16
+    readonly property int fontSizeSmall: 12
+    readonly property int fontSizeNormal: 16
+    readonly property int fontSizeLarge: 18
     readonly property real radius: 8
     readonly property color infoBg: "#122033"
     readonly property color warningBg: "#2D1D2F"
@@ -112,7 +113,7 @@ Item {
             color: root.accent
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
-            font.pixelSize: 18
+            font.pixelSize: root.fontSizeLarge + 2
             font.weight: Font.DemiBold
             opacity: 0.85
         }
@@ -174,7 +175,7 @@ Item {
                 anchors.centerIn: parent
                 text: root.statusText
                 color: root.statusBusy ? root.warningText : root.infoText
-                font.pixelSize: 10
+                font.pixelSize: root.fontSizeSmall
                 font.weight: Font.DemiBold
                 Behavior on color {
                     ColorAnimation {

@@ -372,35 +372,37 @@ Item {
                     visible: !isOllamaProvider
                     height: visible ? implicitHeight : 0
 
-                    Text {
+                    Row {
                         width: parent.width
-                        text: "API Server"
-                        color: mutedForeground
-                        font.pixelSize: fontSizeSmall
-                        font.weight: Font.DemiBold
-                    }
+                        spacing: 10
 
-                    TextField {
-                        id: serverInput
-                        width: parent.width
-                        height: 44
-                        text: "https://api.openai.com"
-                        color: foreground
-                        placeholderText: "https://api.openai.com"
-                        placeholderTextColor: subtleForeground
-                        font.pixelSize: fontSizeNormal
-                        leftPadding: 14
-                        rightPadding: 14
-                        verticalAlignment: TextInput.AlignVCenter
-                        selectByMouse: true
-                        onTextChanged: saveConfig()
+                        FieldLabel {
+                            id: serverLabel
+                            title: "API Server"
+                        }
 
-                        background: Rectangle {
-                            color: serverInput.activeFocus ? "#152332" : fieldColor
-                            radius: root.radius
-                            border.width: 1
-                            border.color: serverInput.activeFocus ? borderActive : (serverInput.hovered ? Qt.rgba(0.39, 0.96, 0.84, 0.55) : border)
-                            Behavior on color { ColorAnimation { duration: 160 } }
+                        TextField {
+                            id: serverInput
+                            width: parent.width - serverLabel.width - 10
+                            height: 44
+                            text: "https://api.openai.com"
+                            color: foreground
+                            placeholderText: "https://api.openai.com"
+                            placeholderTextColor: subtleForeground
+                            font.pixelSize: fontSizeNormal
+                            leftPadding: 14
+                            rightPadding: 14
+                            verticalAlignment: TextInput.AlignVCenter
+                            selectByMouse: true
+                            onTextChanged: saveConfig()
+
+                            background: Rectangle {
+                                color: serverInput.activeFocus ? "#152332" : fieldColor
+                                radius: root.radius
+                                border.width: 1
+                                border.color: serverInput.activeFocus ? borderActive : (serverInput.hovered ? Qt.rgba(0.39, 0.96, 0.84, 0.55) : border)
+                                Behavior on color { ColorAnimation { duration: 160 } }
+                            }
                         }
                     }
                 }
@@ -413,58 +415,47 @@ Item {
 
                     Row {
                         width: parent.width
-                        height: 16
+                        spacing: 10
 
-                        Text {
-                            text: "API Key"
-                            color: mutedForeground
-                            font.pixelSize: fontSizeSmall
-                            font.weight: Font.DemiBold
-                            anchors.verticalCenter: parent.verticalCenter
+                        FieldLabel {
+                            id: keyLabel
+                            title: "API Key"
                         }
 
-                        Text {
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: keyInput.text.trim().length > 0 ? "saved locally" : "required"
-                            color: keyInput.text.trim().length > 0 ? accent : subtleForeground
-                            font.pixelSize: 11
-                        }
-                    }
+                        ScrollView {
+                            id: keyScroll
+                            width: parent.width - keyLabel.width - 10
+                            height: 86
+                            clip: true
+                            contentWidth: availableWidth
+                            ScrollBar.vertical: ScrollBar {
+                                policy: keyInput.contentHeight > keyScroll.height ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
+                                width: 7
+                            }
 
-                    ScrollView {
-                        id: keyScroll
-                        width: parent.width
-                        height: 86
-                        clip: true
-                        contentWidth: availableWidth
-                        ScrollBar.vertical: ScrollBar {
-                            policy: keyInput.contentHeight > keyScroll.height ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
-                            width: 7
-                        }
+                            TextArea {
+                                id: keyInput
+                                width: keyScroll.availableWidth
+                                height: keyScroll.height
+                                color: foreground
+                                placeholderText: "sk-..."
+                                placeholderTextColor: subtleForeground
+                                font.pixelSize: fontSizeNormal
+                                wrapMode: Text.WrapAnywhere
+                                selectByMouse: true
+                                topPadding: 10
+                                bottomPadding: 10
+                                leftPadding: 14
+                                rightPadding: 14
+                                onTextChanged: saveConfig()
 
-                        TextArea {
-                            id: keyInput
-                            width: keyScroll.availableWidth
-                            height: keyScroll.height
-                            color: foreground
-                            placeholderText: "sk-..."
-                            placeholderTextColor: subtleForeground
-                            font.pixelSize: fontSizeNormal
-                            wrapMode: Text.WrapAnywhere
-                            selectByMouse: true
-                            topPadding: 10
-                            bottomPadding: 10
-                            leftPadding: 14
-                            rightPadding: 14
-                            onTextChanged: saveConfig()
-
-                            background: Rectangle {
-                                color: keyInput.activeFocus ? "#152332" : fieldColor
-                                radius: root.radius
-                                border.width: 1
-                                border.color: keyInput.activeFocus ? borderActive : (keyInput.hovered ? Qt.rgba(0.39, 0.96, 0.84, 0.55) : border)
-                                Behavior on color { ColorAnimation { duration: 160 } }
+                                background: Rectangle {
+                                    color: keyInput.activeFocus ? "#152332" : fieldColor
+                                    radius: root.radius
+                                    border.width: 1
+                                    border.color: keyInput.activeFocus ? borderActive : (keyInput.hovered ? Qt.rgba(0.39, 0.96, 0.84, 0.55) : border)
+                                    Behavior on color { ColorAnimation { duration: 160 } }
+                                }
                             }
                         }
                     }
@@ -475,165 +466,167 @@ Item {
                 title: "Model Router"
                 subtitle: "Discover available models and bind one for translation."
 
-                Text {
+                Row {
                     width: parent.width
-                    text: "Model"
-                    color: mutedForeground
-                    font.pixelSize: fontSizeSmall
-                    font.weight: Font.DemiBold
-                }
+                    spacing: 10
 
-                Item {
-                    id: modelRow
-                    width: parent.width
-                    height: 44
+                    FieldLabel {
+                        id: modelLabel
+                        title: "Model"
+                    }
 
-                    TextField {
-                        id: modelInput
-                        anchors.left: parent.left
-                        anchors.right: detectModelBtn.left
-                        anchors.rightMargin: 10
-                        anchors.top: parent.top
-                        anchors.bottom: parent.bottom
-                        text: selectedModel
-                        color: foreground
-                        placeholderText: modelDetector.availableModels.length > 0 ? "Select model or type custom model" : "Detect models first"
-                        placeholderTextColor: subtleForeground
-                        font.pixelSize: fontSizeNormal
-                        leftPadding: 14
-                        rightPadding: 34
-                        selectByMouse: true
-                        onTextChanged: {
-                            selectedModel = text.trim()
-                            if (!lock) {
-                                saveConfig()
-                            }
-                        }
+                    Item {
+                        id: modelRow
+                        width: parent.width - modelLabel.width - 10
+                        height: 44
 
-                        background: Rectangle {
-                            color: modelInput.activeFocus || modelPopup.opened ? "#152332" : fieldColor
-                            radius: root.radius
-                            border.width: 1
-                            border.color: modelPopup.opened ? borderActive : (modelInput.hovered || modelInput.activeFocus ? Qt.rgba(0.39, 0.96, 0.84, 0.55) : border)
-                            Behavior on color { ColorAnimation { duration: 160 } }
-                        }
-
-                        MouseArea {
+                        TextField {
+                            id: modelInput
+                            anchors.left: parent.left
+                            anchors.right: detectModelBtn.left
+                            anchors.rightMargin: 10
                             anchors.top: parent.top
                             anchors.bottom: parent.bottom
-                            anchors.right: parent.right
-                            anchors.rightMargin: 0
-                            width: 36
-                            acceptedButtons: Qt.LeftButton
-                            z: 2
-                            onClicked: {
-                                if (modelDetector.availableModels.length > 0 && !modelPopup.opened) {
-                                    modelPopup.open()
-                                } else if (!modelDetector.isDetectingModels && !modelPopup.opened) {
-                                    openModelPopupAfterDetect = true
-                                    detectModels()
-                                }
-                            }
-                        }
-
-                        Text {
-                            id: modelSelectArrow
-                            anchors.right: parent.right
-                            anchors.rightMargin: 12
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: modelPopup.opened ? "▴" : "▾"
-                            color: modelPopup.opened ? accentHover : mutedForeground
-                            font.pixelSize: 16
-                        }
-                    }
-
-                    Button {
-                        id: detectModelBtn
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.bottom: parent.bottom
-                        width: 96
-                        text: modelDetector.isDetectingModels ? "Scanning" : "Detect"
-                        enabled: !modelDetector.isDetectingModels
-                        hoverEnabled: true
-                        font.capitalization: Font.MixedCase
-                        font.pixelSize: fontSizeNormal
-                        scale: down ? 0.97 : 1.0
-
-                        onClicked: {
-                            openModelPopupAfterDetect = false
-                            detectModels()
-                        }
-
-                        Behavior on scale { NumberAnimation { duration: 90 } }
-
-                        background: Rectangle {
-                            radius: root.radius
-                            color: detectModelBtn.enabled ? (detectModelBtn.hovered ? accentHover : accent) : "#2A3541"
-                            border.width: 1
-                            border.color: detectModelBtn.enabled ? Qt.rgba(1, 1, 1, 0.18) : border
-                            Behavior on color { ColorAnimation { duration: 160 } }
-                        }
-
-                        contentItem: Text {
-                            text: detectModelBtn.text
-                            color: detectModelBtn.enabled ? "#061014" : subtleForeground
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
+                            text: selectedModel
+                            color: foreground
+                            placeholderText: modelDetector.availableModels.length > 0 ? "Select model or type custom model" : "Detect models first"
+                            placeholderTextColor: subtleForeground
                             font.pixelSize: fontSizeNormal
-                            font.weight: Font.DemiBold
-                        }
-                    }
-
-                    Popup {
-                        id: modelPopup
-                        x: modelInput.x
-                        y: modelInput.height + 6
-                        width: modelInput.width
-                        implicitHeight: Math.min(modelList.contentHeight + 2, 196)
-                        padding: 1
-                        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-
-                        contentItem: ListView {
-                            id: modelList
-                            clip: true
-                            implicitHeight: Math.min(contentHeight, 196)
-                            model: modelDetector.availableModels
-                            ScrollIndicator.vertical: ScrollIndicator { }
-
-                            delegate: ItemDelegate {
-                                width: modelList.width
-                                height: 38
-                                hoverEnabled: true
-
-                                contentItem: Text {
-                                    text: modelData
-                                    color: selectedModel === modelData ? accent : foreground
-                                    font.pixelSize: fontSizeNormal
-                                    verticalAlignment: Text.AlignVCenter
-                                    elide: Text.ElideRight
-                                    leftPadding: 12
-                                    rightPadding: 12
-                                }
-
-                                background: Rectangle {
-                                    color: hovered ? "#1A2A3A" : panelColorAlt
-                                }
-
-                                onClicked: {
-                                    selectedModel = modelData
-                                    modelPopup.close()
+                            leftPadding: 14
+                            rightPadding: 34
+                            selectByMouse: true
+                            onTextChanged: {
+                                selectedModel = text.trim()
+                                if (!lock) {
                                     saveConfig()
                                 }
                             }
+
+                            background: Rectangle {
+                                color: modelInput.activeFocus || modelPopup.opened ? "#152332" : fieldColor
+                                radius: root.radius
+                                border.width: 1
+                                border.color: modelPopup.opened ? borderActive : (modelInput.hovered || modelInput.activeFocus ? Qt.rgba(0.39, 0.96, 0.84, 0.55) : border)
+                                Behavior on color { ColorAnimation { duration: 160 } }
+                            }
+
+                            MouseArea {
+                                anchors.top: parent.top
+                                anchors.bottom: parent.bottom
+                                anchors.right: parent.right
+                                anchors.rightMargin: 0
+                                width: 36
+                                acceptedButtons: Qt.LeftButton
+                                z: 2
+                                onClicked: {
+                                    if (modelDetector.availableModels.length > 0 && !modelPopup.opened) {
+                                        modelPopup.open()
+                                    } else if (!modelDetector.isDetectingModels && !modelPopup.opened) {
+                                        openModelPopupAfterDetect = true
+                                        detectModels()
+                                    }
+                                }
+                            }
+
+                            Text {
+                                id: modelSelectArrow
+                                anchors.right: parent.right
+                                anchors.rightMargin: 12
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: modelPopup.opened ? "▴" : "▾"
+                                color: modelPopup.opened ? accentHover : mutedForeground
+                                font.pixelSize: 16
+                            }
                         }
 
-                        background: Rectangle {
-                            color: panelColorAlt
-                            radius: root.radius
-                            border.width: 1
-                            border.color: borderActive
+                        Button {
+                            id: detectModelBtn
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            width: 96
+                            text: modelDetector.isDetectingModels ? "Scanning" : "Detect"
+                            enabled: !modelDetector.isDetectingModels
+                            hoverEnabled: true
+                            font.capitalization: Font.MixedCase
+                            font.pixelSize: fontSizeNormal
+                            scale: down ? 0.97 : 1.0
+
+                            onClicked: {
+                                openModelPopupAfterDetect = false
+                                detectModels()
+                            }
+
+                            Behavior on scale { NumberAnimation { duration: 90 } }
+
+                            background: Rectangle {
+                                radius: root.radius
+                                color: detectModelBtn.enabled ? (detectModelBtn.hovered ? accentHover : accent) : "#2A3541"
+                                border.width: 1
+                                border.color: detectModelBtn.enabled ? Qt.rgba(1, 1, 1, 0.18) : border
+                                Behavior on color { ColorAnimation { duration: 160 } }
+                            }
+
+                            contentItem: Text {
+                                text: detectModelBtn.text
+                                color: detectModelBtn.enabled ? "#061014" : subtleForeground
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                                font.pixelSize: fontSizeNormal
+                                font.weight: Font.DemiBold
+                            }
                         }
+                    }
+                }
+
+                Popup {
+                    id: modelPopup
+                    x: modelInput.mapToItem(parent, 0, 0).x
+                    y: modelInput.mapToItem(parent, 0, 0).y + modelInput.height + 6
+                    width: modelInput.width
+                    implicitHeight: Math.min(modelList.contentHeight + 2, 196)
+                    padding: 1
+                    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+                    contentItem: ListView {
+                        id: modelList
+                        clip: true
+                        implicitHeight: Math.min(contentHeight, 196)
+                        model: modelDetector.availableModels
+                        ScrollIndicator.vertical: ScrollIndicator { }
+
+                        delegate: ItemDelegate {
+                            width: modelList.width
+                            height: 38
+                            hoverEnabled: true
+
+                            contentItem: Text {
+                                text: modelData
+                                color: selectedModel === modelData ? accent : foreground
+                                font.pixelSize: fontSizeNormal
+                                verticalAlignment: Text.AlignVCenter
+                                elide: Text.ElideRight
+                                leftPadding: 12
+                                rightPadding: 12
+                            }
+
+                            background: Rectangle {
+                                color: hovered ? "#1A2A3A" : panelColorAlt
+                            }
+
+                            onClicked: {
+                                selectedModel = modelData
+                                modelPopup.close()
+                                saveConfig()
+                            }
+                        }
+                    }
+
+                    background: Rectangle {
+                        color: panelColorAlt
+                        radius: root.radius
+                        border.width: 1
+                        border.color: borderActive
                     }
                 }
 
@@ -960,6 +953,37 @@ Item {
             font.pixelSize: 10
             font.weight: Font.DemiBold
             elide: Text.ElideRight
+        }
+    }
+
+    component FieldLabel: Rectangle {
+        property string title: ""
+        width: 110
+        implicitWidth: 110
+        height: 44
+        color: "transparent"
+
+        Text {
+            id: labelText
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            color: mutedForeground
+            text: title
+            width: 92
+            elide: Text.ElideRight
+            font.pixelSize: fontSizeNormal
+            font.weight: Font.DemiBold
+            verticalAlignment: Text.AlignVCenter
+        }
+
+        Rectangle {
+            id: accentBar
+            width: 4
+            height: 12
+            radius: 2
+            color: accent
+            x: 98
+            anchors.verticalCenter: parent.verticalCenter
         }
     }
 }
