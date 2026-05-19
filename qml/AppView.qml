@@ -14,12 +14,17 @@ Item {
     signal settingClicked;
 
     // 主题颜色定义
-    readonly property color backgroundColor: "#1E1E1E"
-    readonly property color foreground: "#D4D4D4"
-    readonly property color accent: "#4EC9B0"
-    readonly property color accentHover: "#5ED9C0"
-    readonly property color border: "#3E3E42"
-    readonly property color backgroundSecondary: "#252526"
+    readonly property color backgroundColor: "#090D13"
+    readonly property color foreground: "#E8F3F7"
+    readonly property color accent: "#65F4D6"
+    readonly property color accentHover: "#8CFFE8"
+    readonly property color accentPurple: "#7C5CFF"
+    readonly property color border: "#243445"
+    readonly property color borderActive: "#65F4D6"
+    readonly property color backgroundSecondary: "#121A24"
+    readonly property color panelColor: "#141F2A"
+    readonly property color panelColorAlt: "#101720"
+    readonly property color fieldColor: "#0D141D"
     readonly property color error: "#F48771"
     readonly property color success: "#4EC9B0"
     readonly property color warning: "#FFD166"
@@ -44,7 +49,46 @@ Item {
         pinned = true
     }
 
+    Rectangle {
+        id:appBackground
+        anchors.fill: parent
+        z:0
+        color: backgroundColor
+        gradient: Gradient {
+            GradientStop { position: 0.0; color: "#101827" }
+            GradientStop { position: 0.52; color: backgroundColor }
+            GradientStop { position: 1.0; color: "#070A10" }
+        }
+    }
+
+    Rectangle {
+        z:1
+        width: 260
+        height: 260
+        radius: 130
+        x: -120
+        y: -90
+        color: Qt.rgba(0.39, 0.96, 0.84, 0.12)
+        border.color: Qt.rgba(0.39, 0.96, 0.84, 0.18)
+        border.width: 1
+    }
+
+    Rectangle {
+        z:1
+        width: 220
+        height: 220
+        radius: 110
+        anchors.right: parent.right
+        anchors.rightMargin: -110
+        anchors.top: parent.top
+        anchors.topMargin: 110
+        color: Qt.rgba(0.49, 0.36, 1.0, 0.10)
+        border.color: Qt.rgba(0.49, 0.36, 1.0, 0.16)
+        border.width: 1
+    }
+
     Item{
+        z:2
         id:header
         anchors.top: parent.top
         anchors.left: parent.left
@@ -80,6 +124,7 @@ Item {
     }
 
     Item{
+        z:2
         id:inputItem
         anchors.margins: 10
         anchors.top: header.bottom
@@ -88,9 +133,9 @@ Item {
         clip:true
         Rectangle {
             radius: root.radius
-            color: root.backgroundSecondary
+            color: root.panelColor
             border.width : 1
-            border.color: root.border
+            border.color: Qt.rgba(0.24, 0.4, 0.57, 0.35)
             anchors.fill: parent
         }
         GTextEdit{
@@ -153,27 +198,41 @@ Item {
         anchors.top:inputItem.bottom
         font.bold: true
         color:root.accent
-        anchors.topMargin: 40
+        anchors.topMargin: 28
         font.pixelSize: root.fontSizeNormal
-
+        font.weight: Font.DemiBold
+        z:2
     }
 
-    
-
-    GTextEdit{
-        id:result
+    Item{
+        id:resultPanel
+        z:2
         anchors.left: inputItem.left
         anchors.right: inputItem.right
         anchors.top:indictor.bottom
-        anchors.topMargin: 5
+        anchors.topMargin: 8
         anchors.bottom: langSelector.top
         anchors.bottomMargin: 10
-        autoScroll:true
-        readOnly:true
+        clip:true
+        Rectangle {
+            anchors.fill: parent
+            radius: root.radius
+            color: root.panelColorAlt
+            border.width: 1
+            border.color: root.border
+        }
+        GTextEdit{
+            id:result
+            anchors.fill: parent
+            anchors.margins: 1
+            autoScroll:true
+            readOnly:true
+        }
     }
 
     Button{
         id:transBtn
+        z:2
         anchors.bottom: parent.bottom
         anchors.right:parent.right
         anchors.margins:10
@@ -185,14 +244,18 @@ Item {
         }
         height:50
         background: Rectangle {
-            color: root.accent
+            color: "transparent"
             radius: root.radius
             border.width: 1
-            border.color: root.accentHover
+            border.color: root.borderActive
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: root.accent }
+                GradientStop { position: 1.0; color: Qt.darker(root.accent, 1.35) }
+            }
         }
         contentItem: Text {
             text: transBtn.text
-            color: "white"
+            color: "#0F1721"
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
             font.pixelSize: root.fontSizeNormal
@@ -210,6 +273,7 @@ Item {
     Button{
         id:stopBtn
         visible:false
+        z:2
         anchors.bottom: parent.bottom
         anchors.right:parent.right
         anchors.margins:10
@@ -235,6 +299,7 @@ Item {
 
     ComboBox {
         id:langSelector
+        z:2
         anchors.bottom: parent.bottom
         anchors.left:parent.left
         anchors.margins:10
@@ -247,10 +312,10 @@ Item {
 
         // 应用主题样式
         background: Rectangle {
-            color: root.backgroundSecondary
+            color: root.fieldColor
             radius: root.radius
             border.width: 1
-            border.color: root.border
+            border.color: root.borderActive
         }
 
         contentItem: Text {
@@ -317,7 +382,7 @@ Item {
             }
 
             background: Rectangle {
-                color: root.backgroundSecondary
+                color: root.panelColorAlt
                 radius: root.radius
                 border.color: root.border
                 border.width: 1
