@@ -540,18 +540,14 @@ Item {
 
                         TextField {
                             id: modelInput
-                            anchors.left: parent.left
-                            anchors.right: detectModelBtn.left
-                            anchors.rightMargin: 10
-                            anchors.top: parent.top
-                            anchors.bottom: parent.bottom
+                            anchors.fill: parent
                             text: selectedModel
                             color: foreground
                             placeholderText: modelDetector.availableModels.length > 0 ? "" : "Detect models first"
                             placeholderTextColor: subtleForeground
                             font.pixelSize: fontSizeNormal
                             leftPadding: 14
-                            rightPadding: 34
+                            rightPadding: 100
                             selectByMouse: true
                             onTextChanged: {
                                 selectedModel = text.trim()
@@ -567,71 +563,45 @@ Item {
                                 border.color: modelPopup.opened ? borderActive : (modelInput.hovered || modelInput.activeFocus ? Qt.rgba(0.39, 0.96, 0.84, 0.55) : border)
                                 Behavior on color { ColorAnimation { duration: 160 } }
                             }
+                        }
+
+                        Rectangle {
+                            id: modelActionBtn
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            width: 92
+                            radius: root.radius
+                            color: modelActionArea.containsMouse ? accentHover : accent
+                            border.width: 1
+                            border.color: Qt.rgba(1, 1, 1, 0.18)
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: modelDetector.isDetectingModels ? "Scanning"
+                                      : modelPopup.opened ? "▴"
+                                      : modelDetector.availableModels.length > 0 ? "Select ▾"
+                                      : "Detect"
+                                color: "#061014"
+                                font.pixelSize: fontSizeNormal
+                                font.weight: Font.DemiBold
+                            }
 
                             MouseArea {
-                                anchors.top: parent.top
-                                anchors.bottom: parent.bottom
-                                anchors.right: parent.right
-                                anchors.rightMargin: 0
-                                width: 36
-                                acceptedButtons: Qt.LeftButton
-                                z: 2
+                                id: modelActionArea
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
                                 onClicked: {
-                                    if (modelDetector.availableModels.length > 0 && !modelPopup.opened) {
+                                    if (modelPopup.opened) {
+                                        modelPopup.close()
+                                    } else if (modelDetector.availableModels.length > 0) {
                                         modelPopup.open()
-                                    } else if (!modelDetector.isDetectingModels && !modelPopup.opened) {
+                                    } else if (!modelDetector.isDetectingModels) {
                                         openModelPopupAfterDetect = true
                                         detectModels()
                                     }
                                 }
-                            }
-
-                            Text {
-                                id: modelSelectArrow
-                                anchors.right: parent.right
-                                anchors.rightMargin: 12
-                                anchors.verticalCenter: parent.verticalCenter
-                                text: modelPopup.opened ? "▴" : "▾"
-                                color: modelPopup.opened ? accentHover : mutedForeground
-                                font.pixelSize: 16
-                            }
-                        }
-
-                        Button {
-                            id: detectModelBtn
-                            anchors.right: parent.right
-                            anchors.top: parent.top
-                            anchors.bottom: parent.bottom
-                            width: 96
-                            text: modelDetector.isDetectingModels ? "Scanning" : "Detect"
-                            enabled: !modelDetector.isDetectingModels
-                            hoverEnabled: true
-                            font.capitalization: Font.MixedCase
-                            font.pixelSize: fontSizeNormal
-                            scale: down ? 0.97 : 1.0
-
-                            onClicked: {
-                                openModelPopupAfterDetect = false
-                                detectModels()
-                            }
-
-                            Behavior on scale { NumberAnimation { duration: 90 } }
-
-                            background: Rectangle {
-                                radius: root.radius
-                                color: detectModelBtn.enabled ? (detectModelBtn.hovered ? accentHover : accent) : "#2A3541"
-                                border.width: 1
-                                border.color: detectModelBtn.enabled ? Qt.rgba(1, 1, 1, 0.18) : border
-                                Behavior on color { ColorAnimation { duration: 160 } }
-                            }
-
-                            contentItem: Text {
-                                text: detectModelBtn.text
-                                color: detectModelBtn.enabled ? "#061014" : subtleForeground
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                                font.pixelSize: fontSizeNormal
-                                font.weight: Font.DemiBold
                             }
                         }
                     }
@@ -639,9 +609,9 @@ Item {
 
                 Popup {
                     id: modelPopup
-                    x: modelInput.mapToItem(parent, 0, 0).x
-                    y: modelInput.mapToItem(parent, 0, 0).y + modelInput.height + 6
-                    width: modelInput.width
+                    x: modelRow.mapToItem(parent, 0, 0).x
+                    y: modelRow.mapToItem(parent, 0, 0).y + modelRow.height + 6
+                    width: modelRow.width
                     implicitHeight: Math.min(modelList.contentHeight + 2, 196)
                     padding: 1
                     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
@@ -705,7 +675,7 @@ Item {
                         anchors.leftMargin: 12
                         anchors.rightMargin: 12
                         text: modelDetector.modelDetectError !== "" ? modelDetector.modelDetectError
-                                                                      : (modelDetector.availableModels.length > 0 ? (modelDetector.availableModels.length + " models detected · click Model to choose") : "")
+                                                                      : (modelDetector.availableModels.length > 0 ? (modelDetector.availableModels.length + " models detected · click Select to choose") : "")
                         color: modelDetector.modelDetectError !== "" ? error : mutedForeground
                         font.pixelSize: fontSizeSmall
                         elide: Text.ElideRight
