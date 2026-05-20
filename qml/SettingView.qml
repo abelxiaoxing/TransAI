@@ -38,7 +38,7 @@ Item {
     readonly property color success: "#65F4D6"
     readonly property int fontSizeSmall: 16
     readonly property int fontSizeNormal: 20
-    readonly property int fontSizeLarge: 25
+    readonly property int fontSizeLarge: 22
     readonly property int fontSizeTitle: 25
     readonly property real radius: 12
     readonly property real radiusLarge: 18
@@ -259,7 +259,7 @@ Item {
             Item {
                 id: header
                 width: parent.width
-                height: 78
+                height: 56
 
                 RoundIconButton {
                     id: backButton
