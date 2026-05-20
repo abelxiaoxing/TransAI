@@ -131,8 +131,8 @@ Item {
         IconButton{
             id:settingBtn
             z:1
-            width: 18
-            height:18
+            width: 26
+            height:26
             anchors.right: parent.right
             anchors.bottom: parent.bottom
             anchors.rightMargin: 58
