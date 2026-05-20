@@ -287,15 +287,6 @@ Item {
                         font.bold: true
                         elide: Text.ElideRight
                     }
-
-                    Text {
-                        text: "Neural translation control center"
-                        color: mutedForeground
-                        font.pixelSize: fontSizeSmall
-                        elide: Text.ElideRight
-                        width: Math.max(0, parent.width - settingTitle.width - 12)
-                        horizontalAlignment: Text.AlignRight
-                    }
                 }
 
                 Row {
@@ -319,7 +310,6 @@ Item {
 
             SettingsCard {
                 title: "AI Provider"
-                subtitle: "Connect TransAI to your preferred inference endpoint."
 
                 Row {
                     width: parent.width
@@ -530,7 +520,6 @@ Item {
 
             SettingsCard {
                 title: "Model Router"
-                subtitle: "Discover available models and bind one for translation."
 
                 Row {
                     width: parent.width
@@ -723,15 +712,6 @@ Item {
 
             SettingsCard {
                 title: "Global Hotkey"
-                subtitle: "Capture selected text from anywhere and translate instantly."
-
-                Text {
-                    width: parent.width
-                    text: "Shortcut"
-                    color: mutedForeground
-                    font.pixelSize: fontSizeSmall
-                    font.weight: Font.DemiBold
-                }
 
                 Rectangle {
                     id: shortcutRect
@@ -903,7 +883,6 @@ Item {
 
         default property alias contentData: bodyColumn.data
         property string title: ""
-        property string subtitle: ""
 
         Column {
             id: cardColumn
@@ -944,14 +923,6 @@ Item {
                         elide: Text.ElideRight
                     }
 
-                    Text {
-                        width: parent.width
-                        text: subtitle
-                        visible: subtitle.length > 0
-                        color: mutedForeground
-                        font.pixelSize: fontSizeSmall
-                        elide: Text.ElideRight
-                    }
                 }
             }
 

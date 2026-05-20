@@ -12,10 +12,10 @@ import Controller
 Window {
     id: mainWindow
     visible: true
-    width: 400
-    height: 600
-    minimumHeight:500
-    minimumWidth:400
+    width: 460
+    height: 700
+    minimumHeight: 500
+    minimumWidth: 400
     title: qsTr("GPT Translator")
 
     // 应用主题样式
@@ -23,6 +23,8 @@ Window {
 
     property Component  popComponent: null
     property QtObject  popW: null
+    property bool isDraggingWindow: false
+    property bool usingSystemMove: false
 
 
 //    flags:Qt.Window | Qt.FramelessWindowHint | Qt.WindowTitleHint | Qt.WindowSystemMenuHint
@@ -81,6 +83,19 @@ Window {
         }
 
     }
+    function beginWindowDrag() {
+        closeWindowAnimation.stop()
+        mainWindow.opacity = 1
+        dragStateResetTimer.stop()
+        isDraggingWindow = true
+        usingSystemMove = mainWindow.startSystemMove()
+    }
+
+    function finishWindowDrag() {
+        usingSystemMove = false
+        dragStateResetTimer.restart()
+    }
+
     Hotkey{
        id:hotkey
        onSelectedTextChanged: {
@@ -112,23 +127,46 @@ Window {
 
        }
 
+       acceptedButtons: Qt.LeftButton
+
        onPressed: {
            clickPos  = Qt.point(mouseX ,mouseY)
+           beginWindowDrag()
        }
 
        onPositionChanged: {
+           if (usingSystemMove) {
+               return
+           }
+
            var delta = Qt.point(mouseX -clickPos.x, mouseY-clickPos.y)
            mainWindow.x += delta.x;
            mainWindow.y += delta.y;
        }
 
        onReleased: {
-           // 拖拽结束时确保窗口在可见范围内
-           ensureWindowVisible();
+           finishWindowDrag()
+       }
+
+       onCanceled: {
+            finishWindowDrag()
        }
    }
 
   
+    Timer {
+        id: dragStateResetTimer
+        interval: 120
+        repeat: false
+        onTriggered: {
+            isDraggingWindow = false
+            ensureWindowVisible()
+            if (!mainWindow.active && !appView.pinned) {
+                closeWindowAnimation.start()
+            }
+        }
+    }
+
     // 窗口关闭动画
     SequentialAnimation {
         id: closeWindowAnimation
@@ -151,10 +189,12 @@ Window {
 
     onActiveChanged: {
         if(active){
+            closeWindowAnimation.stop()
+            mainWindow.opacity = 1
             mainWindow.visible = true
         }else{
             // 当窗口失去焦点且未置顶时，触发关闭动画
-            if(!appView.pinned){
+            if(!appView.pinned && !isDraggingWindow){
                 closeWindowAnimation.start();
             }
         }
