@@ -35,18 +35,35 @@ endif()
 
 
 set(HEADERS
-    src/controller.h
     src/stdafx.h
     src/updater.h
-    src/hotkey.h
-    src/theme/ThemeManager.h
+    src/settings/Setting.h
+    src/translation/TranslationRequest.h
+    src/translation/PromptBuilder.h
+    src/translation/StreamParser.h
+    src/translation/TranslationService.h
+    src/providers/ProviderEndpointBuilder.h
+    src/providers/ModelDiscoveryService.h
+    src/input/ShortcutBackend.h
+    src/input/QHotkeyShortcutBackend.h
+    src/input/GlobalShortcutManager.h
+    src/input/ClipboardGuard.h
+    src/input/SelectionTextProvider.h
 )
 set(SOURCES
     src/main.cpp
-    src/controller.cpp
     src/updater.cpp
-    src/hotkey.cpp
-    src/theme/ThemeManager.cpp
+    src/settings/Setting.cpp
+    src/translation/TranslationRequest.cpp
+    src/translation/PromptBuilder.cpp
+    src/translation/StreamParser.cpp
+    src/translation/TranslationService.cpp
+    src/providers/ProviderEndpointBuilder.cpp
+    src/providers/ModelDiscoveryService.cpp
+    src/input/QHotkeyShortcutBackend.cpp
+    src/input/GlobalShortcutManager.cpp
+    src/input/ClipboardGuard.cpp
+    src/input/SelectionTextProvider.cpp
 )
 
 set(RESOURCES
@@ -127,7 +144,9 @@ IF (CMAKE_SYSTEM_NAME MATCHES "Windows")
         )
     endif()
 ELSEIF (CMAKE_SYSTEM_NAME MATCHES "Linux")
-    target_include_directories(TransAI PRIVATE ${X11_INCLUDE_DIR})
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(XTST REQUIRED xtst)
+    target_include_directories(TransAI PRIVATE ${X11_INCLUDE_DIR} ${XTST_INCLUDE_DIRS})
 
     target_link_libraries(TransAI
         PRIVATE
@@ -135,6 +154,7 @@ ELSEIF (CMAKE_SYSTEM_NAME MATCHES "Linux")
 
         qhotkey
         ${X11_LIBRARIES}
+        ${XTST_LIBRARIES}
         )
 
 ELSEIF (CMAKE_SYSTEM_NAME MATCHES "Darwin")

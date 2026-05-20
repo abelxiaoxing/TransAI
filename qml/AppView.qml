@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import Controller
+import TransAI
 
 
 import QtQuick.Controls.Material
@@ -352,7 +352,16 @@ Item {
         font.capitalization: Font.MixedCase
         enabled:inputArea.text.length > 0
         onClicked: {
-            api.sendMessage(inputArea.text, getMode())
+            translationService.translateFromMap({
+                "text": inputArea.text,
+                "targetLanguage": langSelector.currentText,
+                "mode": getMode(),
+                "source": "manual",
+                "provider": setting.provider,
+                "apiServer": setting.apiServer,
+                "apiKey": setting.apiKey,
+                "model": setting.model
+            })
         }
         height:50
         background: Rectangle {
@@ -382,8 +391,8 @@ Item {
         anchors.verticalCenter: stopBtn.verticalCenter
         anchors.right:stopBtn.left
         anchors.rightMargin: 10
-        running: api.isRequesting
-        visible:api.isRequesting
+        running: translationService.isRequesting
+        visible:translationService.isRequesting
         width:transBtn.height - 10
         height:width
     }
@@ -396,7 +405,7 @@ Item {
         anchors.margins:10
         text:"stop"
         onClicked: {
-            api.abort()
+            translationService.abort()
         }
         height:50
         background: Rectangle {
@@ -437,7 +446,7 @@ Item {
         currentIndex: 0
         model:["简体中文","繁体中文", "English", "Japanse", "German", "Korean", "Español", "français"]
         onCurrentTextChanged: {
-            api.transToLang = currentText
+            // TranslationService receives targetLanguage per request.
         }
         height:40
 
@@ -533,14 +542,21 @@ Item {
         }
     }
 
-    APIController{
-        id:api
+    TranslationService{
+        id:translationService
+        onTranslationStarted: {
+            result.text = ""
+            root.statusBusy = true
+            root.statusText = "Translating..."
+        }
         onResponseDataChanged: {
-            result.text = responseData
+            if (responseError === "") {
+                result.text = responseData
+            }
         }
         onResponseErrorChanged: {
-            if(responseError != ""){
-                result.text = responseError + ":\n" + result.text
+            if (responseError !== "") {
+                result.text = responseError
                 root.statusBusy = false
                 root.statusText = "Error"
             }
@@ -553,31 +569,10 @@ Item {
                 stopBtn.visible = true
             }else{
                 root.statusBusy = false
-                root.statusText = "Ready"
+                root.statusText = responseError !== "" ? "Error" : "Ready"
                 transBtn.visible = true
                 stopBtn.visible = false
             }
-        }
-        Component.onCompleted: {
-            api.apiKey = setting.apiKey
-            api.model = setting.model
-            api.apiServer = setting.apiServer
-            api.provider = setting.provider
-        }
-    }
-    Connections{
-        target: setting
-        function onApiServerChanged(){
-            api.apiServer = setting.apiServer
-        }
-        function onApiKeyChanged(){
-            api.apiKey = setting.apiKey
-        }
-        function onModelChanged(){
-            api.model = setting.model
-        }
-        function onProviderChanged(){
-            api.provider = setting.provider
         }
     }
 }

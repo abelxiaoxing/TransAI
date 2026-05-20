@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls
-import Controller
+import TransAI
 
 Item {
     id: root
@@ -17,6 +17,7 @@ Item {
     property string autoDetectProvider: ""
     property string shortcutBeforeRecording: ""
     property bool shortcutRecordingAccepted: false
+    property QtObject shortcutRegistrar: null
     readonly property bool isOllamaProvider: selectedProvider === "ollama"
     readonly property string ollamaApiServer: "http://localhost:11434"
 
@@ -110,7 +111,7 @@ Item {
             return
         }
         if (isOllamaProvider) {
-            setting.ollamaApiServer = ollamaApiServer
+            setting.ollamaApiServer = serverInput.text.trim().length > 0 ? serverInput.text.trim() : ollamaApiServer
             setting.ollamaModel = selectedModel.trim()
         } else {
             const server = serverInput.text.trim().length > 0 ? serverInput.text.trim() : "https://api.openai.com"
@@ -124,14 +125,14 @@ Item {
     }
 
     function detectModels() {
-        modelDetector.detectModels(isOllamaProvider ? ollamaApiServer : serverInput.text.trim(), keyInput.text, selectedProvider)
+        modelDetector.detectModels(isOllamaProvider ? (serverInput.text.trim().length > 0 ? serverInput.text.trim() : ollamaApiServer) : serverInput.text.trim(), keyInput.text, selectedProvider)
     }
 
     function queueAutoDetectModels() {
         if (lock || !configLoaded) {
             return
         }
-        const server = isOllamaProvider ? ollamaApiServer : normalizedApiServer()
+        const server = isOllamaProvider ? (serverInput.text.trim().length > 0 ? serverInput.text.trim() : ollamaApiServer) : normalizedApiServer()
         const key = isOllamaProvider ? "" : keyInput.text.trim()
         if (!isOllamaProvider && key.length < 10) {
             return
@@ -235,8 +236,8 @@ Item {
         anchors.fill: parent
         onClicked: {
             shortcutRect.focus = false
-            if (shortcutText.text.length > 0) {
-                hotkey.setShortcut(shortcutText.text)
+            if (shortcutText.text.length > 0 && shortcutRegistrar !== null) {
+                shortcutRegistrar.setShortcut(shortcutText.text)
             }
         }
     }
@@ -418,7 +419,7 @@ Item {
                 Column {
                     width: parent.width
                     spacing: 7
-                    visible: !isOllamaProvider
+                    visible: true
                     height: visible ? implicitHeight : 0
 
                     Row {
@@ -700,11 +701,11 @@ Item {
                         if (activeFocus) {
                             shortcutBeforeRecording = shortcutText.text
                             shortcutRecordingAccepted = false
-                            if (shortcutBeforeRecording.length > 0) {
-                                hotkey.setShortcut("")
+                            if (shortcutBeforeRecording.length > 0 && shortcutRegistrar !== null) {
+                                shortcutRegistrar.setShortcut("")
                             }
-                        } else if (!shortcutRecordingAccepted && shortcutBeforeRecording.length > 0) {
-                            hotkey.setShortcut(shortcutBeforeRecording)
+                        } else if (!shortcutRecordingAccepted && shortcutBeforeRecording.length > 0 && shortcutRegistrar !== null) {
+                            shortcutRegistrar.setShortcut(shortcutBeforeRecording)
                         }
                     }
 
@@ -781,9 +782,9 @@ Item {
 
                         var shortcut = shortcutFromEvent(event)
                         if (shortcut.length > 0) {
-                            if (hotkey.setShortcut(shortcut) === false) {
+                            if (shortcutRegistrar !== null && shortcutRegistrar.setShortcut(shortcut) === false) {
                                 if (shortcutBeforeRecording.length > 0) {
-                                    hotkey.setShortcut(shortcutBeforeRecording)
+                                    shortcutRegistrar.setShortcut(shortcutBeforeRecording)
                                 }
                                 shortcutRect.focus = false
                                 event.accepted = true
@@ -807,16 +808,18 @@ Item {
         }
     }
 
-    APIController {
+    ModelDiscoveryService {
         id: modelDetector
+        property bool isDetectingModels: isDetecting
+        property string modelDetectError: error
         onAvailableModelsChanged: {
             if (openModelPopupAfterDetect && availableModels.length > 0) {
                 modelPopup.open()
                 openModelPopupAfterDetect = false
             }
         }
-        onIsDetectingModelsChanged: {
-            if (!isDetectingModels && availableModels.length === 0) {
+        onIsDetectingChanged: {
+            if (!isDetecting && availableModels.length === 0) {
                 openModelPopupAfterDetect = false
             }
         }

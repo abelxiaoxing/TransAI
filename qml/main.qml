@@ -6,7 +6,7 @@ import Qt.labs.platform
 
 import "."
 
-import Controller
+import TransAI
 
 
 Window {
@@ -96,27 +96,46 @@ Window {
         dragStateResetTimer.restart()
     }
 
-    Hotkey{
-       id:hotkey
-       onSelectedTextChanged: {
-//            popWindow(selectedText, mousePos)
-           appView.inputText = selectedText
-           appView.startTrans()
-           mainWindow.show()
-           mainWindow.raise()
-           mainWindow.requestActivate()
-
-           // 确保窗口在可见位置
-           ensureWindowVisible()
-       }
-
+    GlobalShortcutManager {
+        id: shortcutManager
+        onShortcutActivated: function(actionId) {
+            if (actionId === "translateSelection") {
+                selectionTextProvider.requestSelectedText()
+            }
+        }
+        onShortcutRegisterFailed: function(actionId, reason) {
+            console.warn("Shortcut registration failed", actionId, reason)
+        }
     }
 
+    SelectionTextProvider {
+        id: selectionTextProvider
+        onSelectedTextReady: function(text) {
+            appView.inputText = text
+            appView.startTrans()
+            mainWindow.show()
+            mainWindow.raise()
+            mainWindow.requestActivate()
+            ensureWindowVisible()
+        }
+        onSelectedTextFailed: function(reason) {
+            console.warn("Selected text unavailable", reason)
+        }
+    }
 
+    QtObject {
+        id: shortcutRegistrar
+        function setShortcut(shortcut) {
+            shortcutManager.unregisterShortcut("translateSelection")
+            if (shortcut.length === 0) {
+                return true
+            }
+            return shortcutManager.registerShortcut("translateSelection", shortcut)
+        }
+    }
 
     Component.onCompleted: {
-        hotkey.binding(app)
-        hotkey.setShortcut(setting.shortCut)
+        shortcutRegistrar.setShortcut(setting.shortCut)
     }
 
     MouseArea{
@@ -263,6 +282,7 @@ Window {
             }
             SettingView{
                 id:settingView
+                shortcutRegistrar: shortcutRegistrar
                 onBackClicked: {
                     swipeView.currentIndex = 0
                 }

@@ -4,11 +4,14 @@
 #include <QLocale>
 #include <QTranslator>
 
-#include "controller.h"
+#include "settings/Setting.h"
 #include "updater.h"
 #include <QIcon>
 
-#include "hotkey.h"
+#include "input/GlobalShortcutManager.h"
+#include "input/SelectionTextProvider.h"
+#include "providers/ModelDiscoveryService.h"
+#include "translation/TranslationService.h"
 
 int main(int argc, char *argv[])
 {
@@ -50,12 +53,11 @@ int main(int argc, char *argv[])
     #endif
 
     Setting * setting = new Setting();
-//    Hotkey *key = new Hotkey();
-//    key->binding(&app);
-
-    qmlRegisterType<Controller>("Controller",1,0,"APIController");
     qmlRegisterType<Updater>("Updater",1,0,"APIUpdater");
-    qmlRegisterType<Hotkey>("Controller",1,0,"Hotkey");
+    qmlRegisterType<TranslationService>("TransAI", 1, 0, "TranslationService");
+    qmlRegisterType<ModelDiscoveryService>("TransAI", 1, 0, "ModelDiscoveryService");
+    qmlRegisterType<GlobalShortcutManager>("TransAI", 1, 0, "GlobalShortcutManager");
+    qmlRegisterType<SelectionTextProvider>("TransAI", 1, 0, "SelectionTextProvider");
 
 
     QQmlApplicationEngine engine;
