@@ -272,38 +272,41 @@ Item {
                     onClicked: backClicked()
                 }
 
-                Row {
+                Item {
+                    id: titleRow
                     anchors.left: backButton.right
                     anchors.leftMargin: 12
                     anchors.right: parent.right
                     anchors.verticalCenter: backButton.verticalCenter
-                    spacing: 2
+                    height: 48
 
                     Text {
                         id: settingTitle
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
                         text: "Settings"
                         color: foreground
                         font.pixelSize: fontSizeTitle
                         font.bold: true
                         elide: Text.ElideRight
                     }
-                }
 
-                Row {
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.bottom: parent.bottom
-                    spacing: 8
+                    Row {
+                        id: statusRow
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 8
 
-                    StatusPill {
-                        label: selectedProvider === "ollama" ? "LOCAL" : "CLOUD"
-                        dotColor: selectedProvider === "ollama" ? accentPurple : accent
-                    }
+                        StatusPill {
+                            label: selectedProvider === "ollama" ? "LOCAL" : "CLOUD"
+                            dotColor: selectedProvider === "ollama" ? accentPurple : accent
+                        }
 
-                    StatusPill {
-                        label: selectedModel.length > 0 ? selectedModel : "NO MODEL"
-                        dotColor: modelDetector.modelDetectError !== "" ? error : accent
-                        width: Math.min(190, implicitWidth)
+                        StatusPill {
+                            label: selectedModel.length > 0 ? selectedModel : "NO MODEL"
+                            dotColor: modelDetector.modelDetectError !== "" ? error : accent
+                            width: Math.min(190, implicitWidth)
+                        }
                     }
                 }
             }
@@ -544,7 +547,7 @@ Item {
                             anchors.bottom: parent.bottom
                             text: selectedModel
                             color: foreground
-                            placeholderText: modelDetector.availableModels.length > 0 ? "Select model or type custom model" : "Detect models first"
+                            placeholderText: modelDetector.availableModels.length > 0 ? "" : "Detect models first"
                             placeholderTextColor: subtleForeground
                             font.pixelSize: fontSizeNormal
                             leftPadding: 14
