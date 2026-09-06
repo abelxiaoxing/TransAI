@@ -38,9 +38,9 @@ OcrService / ExternalProcessOcrService
     ↓
 recognized text
     ↓
-TranslationRequest(source = ScreenshotOcr)
+TranslationCoordinator 发出 requestSetInputText(text) + requestStartTranslation("screenshotOcr")
     ↓
-TranslationService
+AppView / TranslationService 构造 TranslationRequest(source = ScreenshotOcr)
     ↓
 主窗口展示结果
 ```
@@ -193,6 +193,7 @@ signals:
 - 校验 `QImage` 是否加载成功。
 - 错误时发出清晰原因。
 - QML 可以使用 `FileDialog` 获取路径，C++ 负责加载校验。
+- QML 传入的路径可能是 `file://` URL，也可能是本地路径；C++ 或 QML 必须统一转换为本地文件路径后再加载。
 
 ---
 
@@ -266,7 +267,8 @@ public:
 
 ### 7.4 实现要求
 
-- 使用 `QTemporaryFile` 保存临时图片。
+- 使用 `QTemporaryFile` 或显式临时路径保存临时图片。
+- 如果使用异步 `QProcess`，必须保证临时图片文件在进程结束前不会被删除；可使用 `setAutoRemove(false)` 并在 finished/error 后手动清理，或用 pending job 对象持有临时文件生命周期。
 - 使用 `QProcess` 调用外部 `tesseract`。
 - 支持配置 command，默认：`tesseract`。
 - 支持配置 language，默认：`eng+chi_sim`。
@@ -299,6 +301,12 @@ OcrService.recognize(image)
     ↓
 recognized(text)
     ↓
+requestSetInputText(text)
+requestShowMainWindow()
+requestStartTranslation("screenshotOcr")
+    ↓
+AppView.startTrans("screenshotOcr")
+    ↓
 TranslationService.translateFromMap(...)
 ```
 
@@ -315,27 +323,41 @@ OcrService.recognize(image)
     ↓
 recognized(text)
     ↓
+requestSetInputText(text)
+requestShowMainWindow()
+requestStartTranslation("screenshotOcr")
+    ↓
+AppView.startTrans("screenshotOcr")
+    ↓
 TranslationService.translateFromMap(...)
 ```
 
-### 8.4 TranslationRequest
+### 8.4 TranslationRequest 构造边界
 
-OCR 成功后构造：
+为保持 Phase 2A 的低侵入架构，本阶段推荐继续采用“Coordinator 编排 + QML/AppView 发起翻译”的方式：
 
-```cpp
-TranslationRequest {
-    source = ScreenshotOcr
-    mode = Translate
-    text = recognizedText
-    targetLanguage = 当前设置或 UI 当前目标语言
-    provider = setting.provider
-    apiServer = setting.apiServer
-    apiKey = setting.apiKey
-    model = setting.model
-}
+```text
+TranslationCoordinator 不直接持有 TranslationService 或 Setting
+TranslationCoordinator 只发出 requestSetInputText(text) / requestStartTranslation("screenshotOcr")
+AppView.startTrans(source) 负责构造 translateFromMap(...) 请求
 ```
 
-如果后续区分本地图片来源，可继续使用 `ScreenshotOcr`，或扩展 `TranslationSource`。
+`AppView.startTrans("screenshotOcr")` 最终应构造：
+
+```qml
+translationService.translateFromMap({
+    "text": inputArea.text,
+    "targetLanguage": langSelector.currentText,
+    "mode": getMode(),
+    "source": "screenshotOcr",
+    "provider": setting.provider,
+    "apiServer": setting.apiServer,
+    "apiKey": setting.apiKey,
+    "model": setting.model
+})
+```
+
+如果后续选择重构为 C++ 全局 coordinator 持有 `TranslationService` 和 `Setting`，必须单独设计并保持手动翻译路径不退化；不要在 Phase 2B 中混用两套调用方式。
 
 ---
 
@@ -348,6 +370,7 @@ TranslationRequest {
 ```text
 OCR 文本填入输入框
 显示主窗口
+通过 AppView.startTrans("screenshotOcr") 开始翻译
 显示翻译流式结果
 ```
 
@@ -375,7 +398,7 @@ QML 可以用 `FileDialog` 选择图片，然后调用：
 coordinator.translateImageFile(selectedFile)
 ```
 
-路径格式要注意 `file://` URI 与本地路径转换。
+路径格式要注意 `file://` URI 与本地路径转换。建议在 QML 调用前使用 `selectedFile` 的本地路径转换能力，或在 `ImageInputService` 中统一接受 URL / 本地路径并归一化。
 
 ---
 
@@ -462,7 +485,7 @@ tesseract
 - [ ] `ExternalProcessOcrService` 能调用外部 `tesseract`。
 - [ ] tesseract 不存在时有明确提示。
 - [ ] OCR 输出为空时不发起翻译，并提示用户。
-- [ ] OCR 成功后能构造 `TranslationRequest(source = ScreenshotOcr)`。
+- [ ] OCR 成功后能通过 `requestStartTranslation("screenshotOcr")` 或等价路径构造 `TranslationRequest(source = ScreenshotOcr)`。
 - [ ] OCR 文本能进入 `TranslationService` 翻译。
 - [ ] 翻译结果能在主窗口展示。
 - [ ] 如果实现截图，用户取消截图不会报错。
@@ -474,7 +497,7 @@ tesseract
 - [ ] `PromptBuilder` 不包含 OCR 或图片逻辑。
 - [ ] `OcrService` 不调用翻译服务。
 - [ ] `ScreenshotCaptureService` 不调用 OCR 或翻译服务。
-- [ ] `TranslationCoordinator` 负责编排截图 / 图片 → OCR → 翻译。
+- [ ] `TranslationCoordinator` 负责编排截图 / 图片 → OCR → 请求 UI 发起翻译。
 - [ ] 未实现多模态图片翻译。
 
 ### 13.3 构建验收

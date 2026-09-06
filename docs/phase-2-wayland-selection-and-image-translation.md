@@ -28,18 +28,49 @@ StreamParser
 
 ---
 
-## 1. 为什么 Phase 2 要拆成多份文档
+## 1. Phase 2 总原则
+
+Wayland 下不能默认假设：
+
+```text
+1. 应用可以私自注册全局快捷键
+2. 应用可以模拟 Ctrl+C
+3. 应用可以直接读取其他应用选中文本
+4. 应用可以直接抓取屏幕内容
+```
+
+因此 Phase 2 必须采用：
+
+```text
+基础闭环优先
+    ↓
+明确 fallback
+    ↓
+高级 Portal 能力后置
+```
+
+不要把“Wayland 全局快捷键”和“Wayland 自动取词”混成一个问题：
+
+```text
+全局快捷键：后续用 xdg-desktop-portal GlobalShortcuts
+选中文本获取：Wayland 下 Primary Selection / Clipboard(用户手动 Ctrl+C 后) / Manual Copy Fallback；非 Wayland 下模拟 Ctrl/Cmd+C 获取当前选区
+自动复制：RemoteDesktop Portal 等高级能力，默认关闭，后置实现
+```
+
+---
+
+## 2. 为什么 Phase 2 要拆成多份文档
 
 Phase 2 涉及多个高风险能力：
 
 - Wayland 选中文本获取
 - 全局快捷键 fallback
+- xdg-desktop-portal GlobalShortcuts
 - 截图 Portal
 - OCR 外部进程
 - Popup 展示
 - 设置项扩展
-- Portal Shortcut
-- RemoteDesktop Portal
+- RemoteDesktop Portal / 模拟输入
 - 多模态图片翻译
 
 这些能力不应该在一个上下文里一次性实现。原因：
@@ -49,13 +80,11 @@ Phase 2 涉及多个高风险能力：
 3. OCR、Portal、Vision Provider 都有额外依赖，容易扩大改动范围。
 4. 新开上下文交给 agent 时，单份任务书越聚焦，执行质量越高。
 
-因此 Phase 2 拆成以下四份独立任务书。
-
 ---
 
-## 2. 子阶段文档
+## 3. 子阶段文档
 
-### Phase 2A：划词翻译闭环
+### Phase 2A：划词翻译基础闭环
 
 文档：
 
@@ -66,11 +95,12 @@ Phase 2 涉及多个高风险能力：
 ```text
 快捷键 / 托盘菜单 / 应用内按钮
     ↓
+TranslationCoordinator.translateSelectedText()
+    ↓
 SelectionTextProvider
     ↓
-Primary Selection / Clipboard / Manual Copy Fallback
-    ↓
-TranslationCoordinator
+Wayland: Primary Selection / Clipboard(manual copy) / Manual Copy Fallback
+Non-Wayland: simulate Ctrl/Cmd+C with ClipboardGuard
     ↓
 TranslationService
     ↓
@@ -80,13 +110,24 @@ TranslationService
 特点：
 
 - 优先完成可用闭环。
-- 不强依赖完整 Wayland GlobalShortcuts Portal。
+- 不强依赖 Wayland GlobalShortcuts Portal。
+- 必须提供不依赖全局快捷键且不依赖托盘的应用内触发入口；托盘菜单只能作为补充。
+- Wayland 下失败时给出手动 Ctrl+C 提示。
 - 不做 OCR。
 - 不做截图。
 - 不做多模态。
 - 不强制实现 Popup。
 
 建议第一个实现。
+
+Phase 2A 推荐拆分：
+
+```text
+2A-1 修复 SelectionTextProvider fallback
+2A-2 增加托盘菜单 / 应用内按钮触发入口
+2A-3 引入 TranslationCoordinator
+2A-4 改善快捷键失败提示
+```
 
 ---
 
@@ -142,6 +183,7 @@ ScreenshotPreview
 - 不改变底层翻译管线。
 - 不实现新的 Portal 能力。
 - 不实现多模态。
+- 可为 Phase 2D 的 Portal Shortcut 设置页语义预留 UI。
 
 建议在 Phase 2A / 2B 闭环稳定后实现。
 
@@ -168,12 +210,23 @@ OpenAI-compatible vision payload
 - 高风险、高复杂度。
 - 依赖不同桌面环境和 Provider 能力。
 - 不应阻塞 Phase 2A / 2B 的核心闭环。
+- 不替代 Phase 2A 的 Manual Copy fallback。
 
 建议最后实现，或拆成后续 Phase 3。
 
+Phase 2D 推荐继续拆分：
+
+```text
+2D-1 PortalShortcutBackend scaffold
+2D-2 PortalShortcutBackend 完整 D-Bus 实现
+2D-3 Wayland 设置页适配 Portal 语义
+2D-4 可选 RemoteDesktop Portal 取词策略
+2D-5 VisionTranslationService / ImagePayloadBuilder
+```
+
 ---
 
-## 3. 推荐执行顺序
+## 4. 推荐执行顺序
 
 ```text
 1. docs/phase-2a-selection-translation.md
@@ -185,7 +238,7 @@ OpenAI-compatible vision payload
 如果资源有限，至少完成：
 
 ```text
-Phase 2A：划词翻译闭环
+Phase 2A：划词翻译基础闭环
 Phase 2B：截图 / 图片 OCR 翻译闭环
 ```
 
@@ -193,12 +246,13 @@ Phase 2B：截图 / 图片 OCR 翻译闭环
 
 ---
 
-## 4. 全局架构原则
+## 5. 全局架构原则
 
 所有子阶段都必须遵守：
 
 ```text
 GlobalShortcutManager 只负责快捷键。
+ShortcutBackend 只负责注册/注销/激活信号。
 SelectionTextProvider 只负责获取文本。
 ScreenshotCaptureService 只负责获取图片。
 OcrService 只负责图片到文本。
@@ -212,6 +266,8 @@ QML 负责展示，不负责编排复杂业务。
 
 ```text
 Hotkey 直接调用 TranslationService
+ShortcutBackend 读取剪贴板
+PortalShortcutBackend 模拟 Ctrl+C
 SelectionTextProvider 直接操作 UI
 TranslationService 处理截图 / OCR
 PromptBuilder 构造图片 payload
@@ -220,7 +276,46 @@ QML 编排完整业务流程
 
 ---
 
-## 5. 总体验收目标
+## 6. Wayland 快捷键策略
+
+### 6.1 Phase 2A
+
+Phase 2A 不依赖完整 Portal 快捷键。
+
+```text
+Wayland 下全局快捷键注册失败
+    ↓
+显示清晰提示
+    ↓
+使用托盘菜单 / 应用内按钮 / 手动 Ctrl+C fallback
+```
+
+### 6.2 Phase 2D
+
+真正的 Wayland 全局快捷键在 Phase 2D 实现：
+
+```text
+PortalShortcutBackend
+    ↓
+xdg-desktop-portal GlobalShortcuts
+    ↓
+CreateSession
+    ↓
+BindShortcuts(preferred_trigger)
+    ↓
+Activated
+```
+
+注意：
+
+```text
+preferred_trigger 只是建议，不是应用强制绑定。
+用户可以通过系统 UI 修改或拒绝。
+```
+
+---
+
+## 7. 总体验收目标
 
 Phase 2 全部完成后应支持：
 
@@ -249,7 +344,7 @@ OcrService
     ↓
 TranslationCoordinator
     ↓
-TranslationService
+AppView.startTrans("screenshotOcr") / TranslationService
 
 后续多模态图片
     ↓
@@ -263,12 +358,14 @@ VisionTranslationService
 - 手动翻译不退化。
 - Wayland 能力不可用时不崩溃。
 - 有清晰 fallback。
+- 全局快捷键不可用时至少有应用内按钮；托盘菜单作为补充入口。
+- 选中文本不可读时有手动 Ctrl+C 提示。
 - OCR 依赖缺失时有清晰提示。
 - 多模态功能不污染普通文本翻译路径。
 
 ---
 
-## 6. 给 agent 的使用方式
+## 8. 给 agent 的使用方式
 
 新开上下文时建议只提供对应子阶段文档，例如：
 
@@ -283,6 +380,13 @@ VisionTranslationService
 请根据 docs/phase-2b-screenshot-ocr-translation.md 实现截图 OCR 翻译闭环。
 假设 Phase 2A 已完成。
 不要实现 Popup 或多模态图片翻译。
+```
+
+或：
+
+```text
+请根据 docs/phase-2d-advanced-portal-vision.md 只实现 PortalShortcutBackend scaffold。
+不要实现 VisionTranslationService，不要实现 RemoteDesktop Portal。
 ```
 
 这样能降低误实现和过度实现风险。
