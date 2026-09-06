@@ -10,6 +10,7 @@ Item {
     property bool configLoaded: false
     property string selectedProvider: "openai"
     property string selectedModel: "gpt-3.5-turbo"
+    property string thinkingMode: "auto"
     property bool openModelPopupAfterDetect: false
     property bool switchingProvider: false
     property string autoDetectServer: ""
@@ -52,6 +53,17 @@ Item {
         return provider === "ollama" ? 1 : 0
     }
 
+    function thinkingModeFromIndex(index) {
+        const modes = ["auto", "qwen", "deepseek", "openai", "ollama", "manual"]
+        return modes[index] || "auto"
+    }
+
+    function thinkingIndex(mode) {
+        const modes = ["auto", "qwen", "deepseek", "openai", "ollama", "manual"]
+        const i = modes.indexOf(mode)
+        return i >= 0 ? i : 0
+    }
+
     function normalizedApiServer() {
         return serverInput.text.trim().length > 0 ? serverInput.text.trim() : "https://api.openai.com"
     }
@@ -90,6 +102,7 @@ Item {
         applyProviderSettings(selectedProvider)
         keyInput.text = setting.openaiApiKey
         shortcutText.text = setting.shortCut
+        thinkingMode = thinkingIndex(setting.thinkingMode) >= 0 ? setting.thinkingMode : "auto"
         selectedModel = isOllamaProvider ? setting.ollamaModel : setting.openaiModel
         if (selectedModel.trim().length === 0 && !isOllamaProvider) {
             selectedModel = "gpt-3.5-turbo"
@@ -120,6 +133,7 @@ Item {
             setting.openaiModel = selectedModel.trim().length > 0 ? selectedModel.trim() : "gpt-3.5-turbo"
         }
         setting.shortCut = shortcutText.text
+        setting.thinkingMode = thinkingMode
         setting.applyProviderConfig(selectedProvider)
         setting.updateConfig()
     }
@@ -606,6 +620,113 @@ Item {
                             }
                         }
                     }
+                }
+
+                Row {
+                    width: parent.width
+                    spacing: 10
+
+                    FieldLabel {
+                        id: thinkingLabel
+                        title: "Thinking"
+                    }
+
+                    ComboBox {
+                        id: thinkingCombo
+                        width: parent.width - thinkingLabel.width - 10
+                        height: 44
+                        model: ["Auto (detect by model)", "Qwen 3.8 / 3.6 / 3.5", "DeepSeek", "OpenAI o-series", "Ollama", "Manual (none)"]
+                        currentIndex: thinkingIndex(thinkingMode)
+                        font.pixelSize: fontSizeNormal
+                        hoverEnabled: true
+
+                        onActivated: {
+                            if (!lock) {
+                                thinkingMode = thinkingModeFromIndex(currentIndex)
+                                saveConfig()
+                            }
+                        }
+
+                        background: Rectangle {
+                            color: thinkingCombo.hovered || thinkingCombo.popup.opened ? "#152332" : fieldColor
+                            radius: root.radius
+                            border.width: 1
+                            border.color: thinkingCombo.popup.opened ? borderActive : (thinkingCombo.hovered ? Qt.rgba(0.39, 0.96, 0.84, 0.55) : border)
+                            Behavior on color { ColorAnimation { duration: 160 } }
+                        }
+
+                        contentItem: Text {
+                            text: thinkingCombo.displayText
+                            color: foreground
+                            font.pixelSize: fontSizeNormal
+                            verticalAlignment: Text.AlignVCenter
+                            elide: Text.ElideRight
+                            leftPadding: 14
+                            rightPadding: 40
+                        }
+
+                        indicator: Text {
+                            x: thinkingCombo.width - width - 14
+                            y: (thinkingCombo.height - height) / 2
+                            text: thinkingCombo.popup.opened ? "▴" : "▾"
+                            color: thinkingCombo.hovered || thinkingCombo.popup.opened ? accentHover : mutedForeground
+                            font.pixelSize: 16
+                        }
+
+                        delegate: ItemDelegate {
+                            width: thinkingCombo.width
+                            height: 38
+                            highlighted: thinkingCombo.highlightedIndex === index
+
+                            contentItem: Text {
+                                text: modelData
+                                color: thinkingCombo.currentIndex === index ? accent : foreground
+                                font.pixelSize: fontSizeNormal
+                                verticalAlignment: Text.AlignVCenter
+                                elide: Text.ElideRight
+                                leftPadding: 12
+                                rightPadding: 12
+                            }
+
+                            background: Rectangle {
+                                color: thinkingCombo.highlightedIndex === index ? "#1A2A3A" : panelColorAlt
+                                radius: 8
+                            }
+                        }
+
+                        popup: Popup {
+                            y: thinkingCombo.height + 6
+                            width: thinkingCombo.width
+                            implicitHeight: contentItem.implicitHeight + 2
+                            padding: 1
+
+                            contentItem: ListView {
+                                clip: true
+                                implicitHeight: contentHeight
+                                model: thinkingCombo.popup.visible ? thinkingCombo.delegateModel : null
+                                currentIndex: thinkingCombo.highlightedIndex
+                                ScrollIndicator.vertical: ScrollIndicator { }
+                            }
+
+                            background: Rectangle {
+                                color: panelColorAlt
+                                radius: root.radius
+                                border.width: 1
+                                border.color: borderActive
+                            }
+                        }
+                    }
+                }
+
+                Text {
+                    width: parent.width
+                    leftPadding: thinkingLabel.width + 10
+                    text: "Auto detects the model family from its name. If your model id is a relay alias (e.g. LocalModel on NewAPI), pick the family of the real model — e.g. Qwen 3.8 sends enable_thinking=false + reasoning_effort=low to skip xhigh thinking."
+                    color: subtleForeground
+                    font.pixelSize: 15
+                    wrapMode: Text.WordWrap
+                    maximumLineCount: 3
+                    elide: Text.ElideRight
                 }
 
                 Popup {

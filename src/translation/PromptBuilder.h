@@ -4,12 +4,13 @@
 #include <QJsonArray>
 #include <QJsonObject>
 
+#include "providers/ThinkingPolicy.h"
 #include "translation/TranslationRequest.h"
 
 class PromptBuilder
 {
 public:
-    QJsonArray buildMessages(const TranslationRequest& request) const;
+    QJsonArray buildMessages(const TranslationRequest& request, const ThinkingPolicy& policy) const;
 
 private:
     QJsonObject createMessage(const QString& role, const QString& content) const;

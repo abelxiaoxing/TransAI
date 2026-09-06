@@ -44,6 +44,7 @@ set(HEADERS
     src/translation/TranslationService.h
     src/providers/ProviderEndpointBuilder.h
     src/providers/ModelDiscoveryService.h
+    src/providers/ThinkingPolicy.h
     src/input/ShortcutBackend.h
     src/input/QHotkeyShortcutBackend.h
     src/input/GlobalShortcutManager.h
@@ -60,6 +61,7 @@ set(SOURCES
     src/translation/TranslationService.cpp
     src/providers/ProviderEndpointBuilder.cpp
     src/providers/ModelDiscoveryService.cpp
+    src/providers/ThinkingPolicy.cpp
     src/input/QHotkeyShortcutBackend.cpp
     src/input/GlobalShortcutManager.cpp
     src/input/ClipboardGuard.cpp

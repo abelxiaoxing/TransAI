@@ -5,6 +5,7 @@
 #include <QNetworkRequest>
 
 #include "providers/ProviderEndpointBuilder.h"
+#include "providers/ThinkingPolicy.h"
 #include "translation/PromptBuilder.h"
 
 TranslationService::TranslationService(QObject* parent)
@@ -117,10 +118,25 @@ void TranslationService::translate(const TranslationRequest& request)
     }
 
     PromptBuilder promptBuilder;
+
+    // Decide how to suppress/minimize model thinking for this endpoint/model
+    // (e.g. thinking.type=disabled for DeepSeek chat, enable_thinking=false
+    // for Qwen3, think=false for Ollama, reasoning_effort=low for o-series).
+    ThinkingPolicy thinkingPolicy = ThinkingPolicyBuilder::build(
+        normalizedRequest.provider, normalizedRequest.apiServer, normalizedRequest.model, normalizedRequest.thinkingMode);
+    if (normalizedRequest.thinkingMode == "auto" && normalizedRequest.mode == TranslationMode::Translate) {
+        // Translation is a deterministic task: always instruct the model
+        // (prompt level) to skip its reasoning process.
+        thinkingPolicy.directAnswerHint = true;
+    }
+
     QJsonObject requestData;
     requestData.insert("model", normalizedRequest.model);
     requestData.insert("stream", true);
-    requestData.insert("messages", promptBuilder.buildMessages(normalizedRequest));
+    for (auto it = thinkingPolicy.bodyParams.constBegin(); it != thinkingPolicy.bodyParams.constEnd(); ++it) {
+        requestData.insert(it.key(), it.value());
+    }
+    requestData.insert("messages", promptBuilder.buildMessages(normalizedRequest, thinkingPolicy));
 
     m_streamParser.reset();
     setIsRequesting(true);

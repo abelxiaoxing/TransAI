@@ -22,6 +22,7 @@ const char kOllamaApiServerKey[] = "ollamaApiServer";
 const char kOllamaModelKey[] = "ollamaModel";
 const char kShortCutKey[] = "shortCut";
 const char kProviderKey[] = "provider";
+const char kThinkingModeKey[] = "thinkingMode";
 const char kDefaultApiServer[] = "https://api.openai.com";
 const char kDefaultOllamaApiServer[] = "http://localhost:11434";
 
@@ -86,6 +87,7 @@ Setting::Setting(QObject* parent)
     _ollamaModel = "";
     _shortCut = "";
     _provider = "openai";
+    _thinkingMode = "auto";
     applyActiveProviderConfig();
 
     m_configPath = resolveConfigPath();
@@ -169,6 +171,12 @@ bool Setting::loadConfig()
     _ollamaModel = obj.value(kOllamaModelKey).toString();
     _shortCut = obj.value(kShortCutKey).toString();
 
+    _thinkingMode = obj.value(kThinkingModeKey).toString("auto").trimmed().toLower();
+    if (_thinkingMode != "auto" && _thinkingMode != "qwen" && _thinkingMode != "deepseek"
+        && _thinkingMode != "openai" && _thinkingMode != "ollama" && _thinkingMode != "manual") {
+        _thinkingMode = "auto";
+    }
+
     applyActiveProviderConfig();
     return true;
 }
@@ -216,6 +224,7 @@ void Setting::updateConfig()
         {kApiServerKey, _provider == "ollama" ? _ollamaApiServer : _openaiApiServer},
         {kShortCutKey, _shortCut},
         {kProviderKey, _provider},
+        {kThinkingModeKey, _thinkingMode},
         {kOpenAIApiServerKey, _openaiApiServer},
         {kOpenAIApiKeyKey, _openaiApiKey},
         {kOpenAIModelKey, _openaiModel},

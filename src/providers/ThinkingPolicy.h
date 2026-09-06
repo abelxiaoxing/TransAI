@@ -1,0 +1,58 @@
+#ifndef THINKING_POLICY_H
+#define THINKING_POLICY_H
+
+#include <QJsonObject>
+#include <QString>
+
+// Describes how to suppress or minimize model "thinking" (reasoning) output
+// for a given provider / endpoint / model combination.
+//
+// Thinking suppression works on two levels:
+//  1. API parameters (bodyParams): provider-specific request fields such as
+//     {"thinking": {"type": "disabled"}} for DeepSeek chat,
+//     {"enable_thinking": false} for Qwen3,
+//     {"think": false} for Ollama,
+//     {"reasoning_effort": "low"} for OpenAI o-series,
+//     {"reasoning": {"effort": "low"}} for OpenRouter.
+//     These are only added when the target model is known to accept them.
+//  2. Prompt level: an optional "/no_think" tag (DeepSeek R1 reasoners) and/or
+//     a "answer directly, no reasoning steps" hint appended to the system
+//     prompt. Prompt-level instructions are safe for any model.
+struct ThinkingPolicy
+{
+    // Extra JSON fields merged into the chat-completion request body.
+    QJsonObject bodyParams;
+
+    // Append "/no_think" to the system prompt (DeepSeek R1 reasoner models,
+    // which cannot be disabled through API parameters).
+    bool noThinkTag = false;
+
+    // Append a prompt-level "answer directly, do not show reasoning" hint.
+    bool directAnswerHint = false;
+
+    bool isActive() const
+    {
+        return !bodyParams.isEmpty() || noThinkTag || directAnswerHint;
+    }
+};
+
+class ThinkingPolicyBuilder
+{
+public:
+    // Builds the thinking-suppression policy for one translation request.
+    //
+    // mode:
+    //   "auto"    - detect the model family from the model id (recommended, default)
+    //   "qwen"    - force Qwen 3.8/3.6/3.5 controls (enable_thinking=false +
+    //               reasoning_effort=low + /no_think)
+    //   "deepseek"- force DeepSeek controls (thinking.type=disabled / /no_think)
+    //   "openai"  - force OpenAI o-series controls (reasoning_effort=low)
+    //   "ollama"  - force Ollama controls (think=false)
+    //   "manual"  - never add thinking-related parameters (request sent as-is)
+    //
+    // Forced profiles are useful when the model id is a relay alias (e.g.
+    // "LocalModel" on a NewAPI gateway) that hides the real model family.
+    static ThinkingPolicy build(const QString& provider, const QString& apiServer, const QString& model, const QString& mode);
+};
+
+#endif // THINKING_POLICY_H

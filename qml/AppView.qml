@@ -360,7 +360,8 @@ Item {
                 "provider": setting.provider,
                 "apiServer": setting.apiServer,
                 "apiKey": setting.apiKey,
-                "model": setting.model
+                "model": setting.model,
+                "thinkingMode": setting.thinkingMode
             })
         }
         height:50

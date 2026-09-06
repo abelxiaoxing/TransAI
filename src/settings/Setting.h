@@ -14,6 +14,7 @@ class Setting : public QObject
     Q_PROPERTY_AUTO(QString, model);
     Q_PROPERTY_AUTO(QString, shortCut);
     Q_PROPERTY_AUTO(QString, provider);
+    Q_PROPERTY_AUTO(QString, thinkingMode);
     Q_PROPERTY_AUTO(QString, openaiApiServer);
     Q_PROPERTY_AUTO(QString, openaiApiKey);
     Q_PROPERTY_AUTO(QString, openaiModel);

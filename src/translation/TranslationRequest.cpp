@@ -69,5 +69,13 @@ TranslationRequest translationRequestFromMap(const QVariantMap& map)
     }
 
     request.source = translationSourceFromString(map.value("source", "manual").toString());
+
+    const QString thinkingMode = map.value("thinkingMode", "auto").toString().trimmed().toLower();
+    if (thinkingMode == "qwen" || thinkingMode == "deepseek" || thinkingMode == "openai"
+        || thinkingMode == "ollama" || thinkingMode == "manual") {
+        request.thinkingMode = thinkingMode;
+    } else {
+        request.thinkingMode = "auto";
+    }
     return request;
 }

@@ -27,6 +27,11 @@ struct TranslationRequest {
     QString apiServer;
     QString apiKey;
     QString model;
+
+    // Thinking suppression mode: "auto" (detect from model id, default),
+    // forced vendor profiles ("qwen", "deepseek", "openai", "ollama") for
+    // relay model aliases, or "manual" (never add thinking parameters).
+    QString thinkingMode = "auto";
 };
 
 TranslationMode translationModeFromString(const QString& value);
