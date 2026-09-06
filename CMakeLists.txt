@@ -9,7 +9,10 @@ set(CMAKE_AUTOUIC ON) # User Interface Compiler
 
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-add_definitions(-DAPP_VERSION="${APP_VERSION}")
+if(NOT DEFINED APP_VERSION OR APP_VERSION STREQUAL "")
+    set(APP_VERSION "${PROJECT_VERSION}")
+endif()
+add_compile_definitions(APP_VERSION="${APP_VERSION}")
 
 message(STATUS "APP_VERSION: ${APP_VERSION}")
 
@@ -28,7 +31,7 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
         message(STATUS "Using local Qt6: ${Qt6_DIR}")
     endif()
 endif()
-find_package(Qt6 REQUIRED COMPONENTS Quick)
+find_package(Qt6 REQUIRED COMPONENTS Quick Network)
 if(Qt6_VERSION_MAJOR EQUAL 6 AND Qt6_VERSION_MINOR GREATER_EQUAL 5)
     qt6_policy(SET QTP0001 OLD)
 endif()
@@ -37,6 +40,7 @@ endif()
 set(HEADERS
     src/stdafx.h
     src/updater.h
+    src/app/ApplicationCommandServer.h
     src/settings/Setting.h
     src/translation/TranslationRequest.h
     src/translation/PromptBuilder.h
@@ -54,6 +58,7 @@ set(HEADERS
 set(SOURCES
     src/main.cpp
     src/updater.cpp
+    src/app/ApplicationCommandServer.cpp
     src/settings/Setting.cpp
     src/translation/TranslationRequest.cpp
     src/translation/PromptBuilder.cpp
@@ -132,6 +137,7 @@ IF (CMAKE_SYSTEM_NAME MATCHES "Windows")
     target_link_libraries(TransAI
         PRIVATE
         Qt6::Quick
+        Qt6::Network
 
         qhotkey
         user32
@@ -140,6 +146,7 @@ IF (CMAKE_SYSTEM_NAME MATCHES "Windows")
     target_link_libraries(TransAI
         PRIVATE
         Qt6::Quick
+        Qt6::Network
 
         qhotkey
         user32
@@ -153,6 +160,7 @@ ELSEIF (CMAKE_SYSTEM_NAME MATCHES "Linux")
     target_link_libraries(TransAI
         PRIVATE
         Qt6::Quick
+        Qt6::Network
 
         qhotkey
         ${X11_LIBRARIES}
@@ -163,6 +171,7 @@ ELSEIF (CMAKE_SYSTEM_NAME MATCHES "Darwin")
     target_link_libraries(TransAI
         PRIVATE
         Qt6::Quick
+        Qt6::Network
 
         qhotkey
         ${APP_SERVICES_LIBRARY}

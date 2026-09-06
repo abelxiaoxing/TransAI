@@ -40,9 +40,28 @@ Item {
     readonly property color warningBg: "#2D1D2F"
     readonly property color infoText: "#8DD9FF"
     readonly property color warningText: "#FF9BAA"
-    function startTrans(){
-        if(inputArea.text.length > 0 && transBtn.visible)
-            transBtn.clicked()
+    function startTrans(source){
+        if (inputArea.text.length === 0) {
+            return
+        }
+        translationService.translateFromMap({
+            "text": inputArea.text,
+            "targetLanguage": langSelector.currentText,
+            "mode": getMode(),
+            "source": source || "manual",
+            "provider": setting.provider,
+            "apiServer": setting.apiServer,
+            "apiKey": setting.apiKey,
+            "model": setting.model,
+            "thinkingMode": setting.thinkingMode
+        })
+    }
+
+    function showSelectionError(message) {
+        translationService.abort()
+        result.text = message
+        statusBusy = false
+        statusText = "Selection unavailable"
     }
 
     function getMode(){
@@ -352,17 +371,7 @@ Item {
         font.capitalization: Font.MixedCase
         enabled:inputArea.text.length > 0
         onClicked: {
-            translationService.translateFromMap({
-                "text": inputArea.text,
-                "targetLanguage": langSelector.currentText,
-                "mode": getMode(),
-                "source": "manual",
-                "provider": setting.provider,
-                "apiServer": setting.apiServer,
-                "apiKey": setting.apiKey,
-                "model": setting.model,
-                "thinkingMode": setting.thinkingMode
-            })
+            root.startTrans("manual")
         }
         height:50
         background: Rectangle {

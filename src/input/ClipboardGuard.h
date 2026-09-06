@@ -2,6 +2,7 @@
 #define CLIPBOARD_GUARD_H
 
 #include <QObject>
+#include <QMap>
 #include <QString>
 
 class ClipboardGuard : public QObject
@@ -16,7 +17,9 @@ public:
     bool restore() const;
 
 private:
+    bool m_hadMimeData = false;
     QString m_originalText;
+    QMap<QString, QByteArray> m_originalMimeData;
 };
 
 #endif // CLIPBOARD_GUARD_H

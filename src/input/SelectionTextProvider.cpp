@@ -3,6 +3,8 @@
 #include <QClipboard>
 #include <QGuiApplication>
 #include <QPointer>
+#include <QProcess>
+#include <QStandardPaths>
 #include <QTimer>
 #include <QUuid>
 
@@ -29,6 +31,80 @@ SelectionTextProvider::SelectionTextProvider(QObject* parent)
 }
 
 void SelectionTextProvider::requestSelectedText()
+{
+    if (QGuiApplication::platformName().contains("wayland", Qt::CaseInsensitive)) {
+        requestWaylandSelectedText();
+        return;
+    }
+
+    requestSelectedTextBySimulatedCopy();
+}
+
+void SelectionTextProvider::requestWaylandSelectedText()
+{
+    if (m_waylandSelectionProcess) {
+        disconnect(m_waylandSelectionProcess, nullptr, this, nullptr);
+        m_waylandSelectionProcess->kill();
+        m_waylandSelectionProcess->deleteLater();
+        m_waylandSelectionProcess = nullptr;
+    }
+
+    const QString wlPaste = QStandardPaths::findExecutable("wl-paste");
+    if (wlPaste.isEmpty()) {
+        if (!emitQtPrimarySelection()) {
+            failWaylandRequest("wl-paste is not installed");
+        }
+        return;
+    }
+
+    QProcess* process = new QProcess(this);
+    m_waylandSelectionProcess = process;
+    process->setProgram(wlPaste);
+    process->setArguments({"--primary", "--no-newline"});
+
+    connect(process, &QProcess::finished, this,
+        [this, process](int exitCode, QProcess::ExitStatus exitStatus) {
+            if (m_waylandSelectionProcess != process) {
+                return;
+            }
+            m_waylandSelectionProcess = nullptr;
+
+            const QString selectedText = QString::fromUtf8(process->readAllStandardOutput()).trimmed();
+            const QString errorDetail = QString::fromUtf8(process->readAllStandardError()).trimmed();
+            process->deleteLater();
+
+            if (exitStatus == QProcess::NormalExit && exitCode == 0 && !selectedText.isEmpty()) {
+                emit selectedTextReady(selectedText);
+                return;
+            }
+            failWaylandRequest(errorDetail);
+        });
+    connect(process, &QProcess::errorOccurred, this, [this, process](QProcess::ProcessError error) {
+        if (error != QProcess::FailedToStart || m_waylandSelectionProcess != process) {
+            return;
+        }
+        m_waylandSelectionProcess = nullptr;
+        const QString detail = process->errorString();
+        process->deleteLater();
+        if (!emitQtPrimarySelection()) {
+            failWaylandRequest(detail);
+        }
+    });
+
+    process->start();
+    QTimer::singleShot(1200, process, [this, process]() {
+        if (m_waylandSelectionProcess != process) {
+            return;
+        }
+        m_waylandSelectionProcess = nullptr;
+        disconnect(process, nullptr, this, nullptr);
+        process->kill();
+        process->deleteLater();
+        failWaylandRequest("primary selection request timed out");
+    });
+}
+
+void SelectionTextProvider::requestSelectedTextBySimulatedCopy()
 {
     ClipboardGuard* guard = new ClipboardGuard(this);
     QClipboard* clipboard = QGuiApplication::clipboard();
@@ -71,6 +147,31 @@ void SelectionTextProvider::requestSelectedText()
         }
         emit selectedTextReady(copiedText);
     });
+}
+
+bool SelectionTextProvider::emitQtPrimarySelection()
+{
+    QClipboard* clipboard = QGuiApplication::clipboard();
+    if (!clipboard || !clipboard->supportsSelection()) {
+        return false;
+    }
+
+    const QString selectedText = clipboard->text(QClipboard::Selection).trimmed();
+    if (selectedText.isEmpty()) {
+        return false;
+    }
+
+    emit selectedTextReady(selectedText);
+    return true;
+}
+
+void SelectionTextProvider::failWaylandRequest(const QString& detail)
+{
+    QString reason = "No selected text is available. Select text in another application, then trigger translation again.";
+    if (!detail.isEmpty()) {
+        reason += QString(" (%1)").arg(detail);
+    }
+    emit selectedTextFailed(reason);
 }
 
 bool SelectionTextProvider::simulateCopy() const

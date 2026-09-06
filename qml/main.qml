@@ -11,7 +11,7 @@ import TransAI
 
 Window {
     id: mainWindow
-    visible: true
+    visible: !startHidden
     width: 460
     height: 700
     minimumHeight: 500
@@ -25,6 +25,23 @@ Window {
     property QtObject  popW: null
     property bool isDraggingWindow: false
     property bool usingSystemMove: false
+
+    function showMainWindow() {
+        closeWindowAnimation.stop()
+        mainWindow.opacity = 1
+        mainWindow.show()
+        mainWindow.raise()
+        mainWindow.requestActivate()
+        ensureWindowVisible()
+    }
+
+    function handleApplicationCommand(command) {
+        if (command === "translate-selection") {
+            selectionTextProvider.requestSelectedText()
+        } else if (command === "show") {
+            showMainWindow()
+        }
+    }
 
 
 //    flags:Qt.Window | Qt.FramelessWindowHint | Qt.WindowTitleHint | Qt.WindowSystemMenuHint
@@ -100,7 +117,7 @@ Window {
         id: shortcutManager
         onShortcutActivated: function(actionId) {
             if (actionId === "translateSelection") {
-                selectionTextProvider.requestSelectedText()
+                mainWindow.handleApplicationCommand("translate-selection")
             }
         }
         onShortcutRegisterFailed: function(actionId, reason) {
@@ -112,14 +129,20 @@ Window {
         id: selectionTextProvider
         onSelectedTextReady: function(text) {
             appView.inputText = text
-            appView.startTrans()
-            mainWindow.show()
-            mainWindow.raise()
-            mainWindow.requestActivate()
-            ensureWindowVisible()
+            appView.startTrans("selectedText")
+            mainWindow.showMainWindow()
         }
         onSelectedTextFailed: function(reason) {
             console.warn("Selected text unavailable", reason)
+            appView.showSelectionError(reason)
+            mainWindow.showMainWindow()
+        }
+    }
+
+    Connections {
+        target: appCommandServer
+        function onCommandReceived(command) {
+            mainWindow.handleApplicationCommand(command)
         }
     }
 
@@ -136,6 +159,11 @@ Window {
 
     Component.onCompleted: {
         shortcutRegistrar.setShortcut(setting.shortCut)
+        if (initialCommand.length > 0) {
+            Qt.callLater(function() {
+                mainWindow.handleApplicationCommand(initialCommand)
+            })
+        }
     }
 
     MouseArea{
@@ -243,6 +271,16 @@ Window {
             menu: Menu {
 
                 MenuItem {
+                    text: "Translate selection"
+                    onTriggered: mainWindow.handleApplicationCommand("translate-selection")
+                }
+
+                MenuItem {
+                    text: "Show"
+                    onTriggered: mainWindow.showMainWindow()
+                }
+
+                MenuItem {
                     text: "Quit"
                     onTriggered: {
                         Qt.quit()
@@ -251,12 +289,7 @@ Window {
             }
 
             onActivated:{
-                mainWindow.show()
-                mainWindow.raise()
-                mainWindow.requestActivate()
-
-                // 确保窗口在可见位置
-                ensureWindowVisible()
+                mainWindow.showMainWindow()
 
 //                mainWindow.x = trayIcon.geometry.x - mainWindow.width/2
 //                mainWindow.y = trayIcon.geometry.y + 50

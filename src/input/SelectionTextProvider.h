@@ -3,6 +3,8 @@
 
 #include <QObject>
 
+class QProcess;
+
 class SelectionTextProvider : public QObject
 {
     Q_OBJECT
@@ -17,7 +19,13 @@ signals:
     void selectedTextFailed(QString reason);
 
 private:
+    void requestWaylandSelectedText();
+    void requestSelectedTextBySimulatedCopy();
+    bool emitQtPrimarySelection();
+    void failWaylandRequest(const QString& detail = QString());
     bool simulateCopy() const;
+
+    QProcess* m_waylandSelectionProcess = nullptr;
 };
 
 #endif // SELECTION_TEXT_PROVIDER_H
