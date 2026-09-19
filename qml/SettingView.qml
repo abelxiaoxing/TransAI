@@ -22,22 +22,22 @@ Item {
     readonly property bool isOllamaProvider: selectedProvider === "ollama"
     readonly property string ollamaApiServer: "http://localhost:11434"
 
-    // Futuristic dark design tokens
-    readonly property color backgroundColor: "#090D13"
-    readonly property color backgroundSecondary: "#121A24"
-    readonly property color panelColor: "#141F2A"
-    readonly property color panelColorAlt: "#101720"
-    readonly property color fieldColor: "#0D141D"
-    readonly property color foreground: "#E8F3F7"
-    readonly property color mutedForeground: "#89A2B2"
-    readonly property color subtleForeground: "#5F7484"
-    readonly property color accent: "#65F4D6"
-    readonly property color accentHover: "#8CFFE8"
-    readonly property color accentPurple: "#7C5CFF"
-    readonly property color border: "#243445"
-    readonly property color borderActive: "#65F4D6"
-    readonly property color error: "#FF7A90"
-    readonly property color success: "#65F4D6"
+    // 主题颜色（统一来自 ThemeColors 单例；字号/圆角保留本页自己的尺度）
+    readonly property color backgroundColor: ThemeColors.background
+    readonly property color backgroundSecondary: ThemeColors.backgroundSecondary
+    readonly property color panelColor: ThemeColors.panelColor
+    readonly property color panelColorAlt: ThemeColors.panelColorAlt
+    readonly property color fieldColor: ThemeColors.fieldColor
+    readonly property color foreground: ThemeColors.foreground
+    readonly property color mutedForeground: ThemeColors.mutedForeground
+    readonly property color subtleForeground: ThemeColors.subtleForeground
+    readonly property color accent: ThemeColors.accent
+    readonly property color accentHover: ThemeColors.accentHover
+    readonly property color accentPurple: ThemeColors.accentPurple
+    readonly property color border: ThemeColors.border
+    readonly property color borderActive: ThemeColors.borderActive
+    readonly property color error: ThemeColors.error
+    readonly property color success: ThemeColors.success
     readonly property int fontSizeSmall: 16
     readonly property int fontSizeNormal: 20
     readonly property int fontSizeLarge: 22
@@ -138,6 +138,15 @@ Item {
         setting.updateConfig()
     }
 
+    // Debounced save for text inputs: writes at most once per pause in typing
+    // instead of once per keystroke.
+    function saveConfigSoon() {
+        if (lock || !configLoaded) {
+            return
+        }
+        saveDebounceTimer.restart()
+    }
+
     function detectModels() {
         modelDetector.detectModels(isOllamaProvider ? (serverInput.text.trim().length > 0 ? serverInput.text.trim() : ollamaApiServer) : serverInput.text.trim(), keyInput.text, selectedProvider)
     }
@@ -215,9 +224,9 @@ Item {
         anchors.fill: parent
         color: backgroundColor
         gradient: Gradient {
-            GradientStop { position: 0.0; color: "#101827" }
-            GradientStop { position: 0.52; color: "#090D13" }
-            GradientStop { position: 1.0; color: "#070A10" }
+            GradientStop { position: 0.0; color: ThemeColors.gradientTop }
+            GradientStop { position: 0.52; color: backgroundColor }
+            GradientStop { position: 1.0; color: ThemeColors.gradientBottom }
         }
     }
 
@@ -457,10 +466,9 @@ Item {
                             leftPadding: 14
                             rightPadding: 14
                             verticalAlignment: TextInput.AlignVCenter
-                            selectByMouse: true
                             onTextChanged: {
                                 if (!lock && !switchingProvider) {
-                                    saveConfig()
+                                    saveConfigSoon()
                                     queueAutoDetectModels()
                                 }
                             }
@@ -511,14 +519,13 @@ Item {
                                 placeholderTextColor: subtleForeground
                                 font.pixelSize: fontSizeNormal
                                 wrapMode: Text.WrapAnywhere
-                                selectByMouse: true
                                 topPadding: 10
                                 bottomPadding: 10
                                 leftPadding: 14
                                 rightPadding: 14
                                 onTextChanged: {
                                     if (!lock && !switchingProvider) {
-                                        saveConfig()
+                                        saveConfigSoon()
                                         queueAutoDetectModels()
                                     }
                                 }
@@ -563,11 +570,10 @@ Item {
                             font.pixelSize: fontSizeNormal
                             leftPadding: 14
                             rightPadding: 100
-                            selectByMouse: true
                             onTextChanged: {
                                 selectedModel = text.trim()
                                 if (!lock && !switchingProvider) {
-                                    saveConfig()
+                                    saveConfigSoon()
                                 }
                             }
 
@@ -944,6 +950,13 @@ Item {
                 openModelPopupAfterDetect = false
             }
         }
+    }
+
+    Timer {
+        id: saveDebounceTimer
+        interval: 400
+        repeat: false
+        onTriggered: saveConfig()
     }
 
     Timer {

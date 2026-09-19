@@ -10,7 +10,7 @@
 
 #include "input/ClipboardGuard.h"
 
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
 #include <ApplicationServices/ApplicationServices.h>
 #endif
 
@@ -176,7 +176,7 @@ void SelectionTextProvider::failWaylandRequest(const QString& detail)
 
 bool SelectionTextProvider::simulateCopy() const
 {
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
     CGEventRef push = CGEventCreateKeyboardEvent(NULL, 0x08, true);
     CGEventSetFlags(push, kCGEventFlagMaskCommand);
     CGEventPost(kCGHIDEventTap, push);

@@ -183,13 +183,18 @@ bool Setting::loadConfig()
 
 void Setting::applyProviderConfig(QString provider)
 {
-    _provider = provider == "ollama" ? "ollama" : "openai";
+    const QString normalized = provider == "ollama" ? "ollama" : "openai";
+    if (_provider == normalized) {
+        applyActiveProviderConfig();
+        return;
+    }
+    _provider = normalized;
+    emit providerChanged();
     applyActiveProviderConfig();
 }
 
 void Setting::applyActiveProviderConfig()
 {
-    emit providerChanged();
     const QString nextApiServer = _provider == "ollama"
         ? (_ollamaApiServer.trimmed().isEmpty() ? kDefaultOllamaApiServer : _ollamaApiServer)
         : (_openaiApiServer.trimmed().isEmpty() ? kDefaultApiServer : _openaiApiServer);
@@ -240,5 +245,10 @@ void Setting::updateConfig()
     file.write(QJsonDocument(obj).toJson(QJsonDocument::Compact));
     if (!file.commit()) {
         qWarning() << "Failed to commit config file:" << file.errorString();
+        return;
     }
+#ifdef Q_OS_UNIX
+    // The config contains the API key in plain text; keep it private.
+    QFile::setPermissions(m_configPath, QFile::ReadOwner | QFile::WriteOwner);
+#endif
 }

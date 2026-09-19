@@ -1,14 +1,15 @@
 # AGENTS.md - TransAI Project Guide
 
 ## Project Overview
-TransAI is a cross-platform translation application built with Qt6 and QML that provides AI-powered translation services. The application features a modern dark theme UI, global hotkey support, system tray integration, and automatic window management.
+TransAI is a cross-platform AI-powered translation application built with Qt6 and QML. It features global hotkey support, system tray integration, single-instance command forwarding, and selection translation on X11 (simulated copy) and Wayland (primary selection).
 
 ## Build Commands
 
 ### Prerequisites
-- Qt 6.9.2 or compatible version
+- Qt 6.9+ (tested with 6.11)
 - CMake 3.16+
 - C++17 compatible compiler
+- X11 + XTest development libraries (Linux)
 
 ### Build Process
 ```bash
@@ -17,17 +18,13 @@ mkdir build && cd build
 cmake -D CMAKE_BUILD_TYPE=Release -D CMAKE_PREFIX_PATH="$QT_PATH" ..
 make -j$(nproc)
 
-# Install (Linux)
-sudo make install
-sudo ldconfig
-
-# Build using automation script
+# Install (Linux, user-level, no root)
 ./build_install.sh
 ```
 
 ### Platform-Specific Setup
-- **Linux**: Requires X11 development libraries
-- **Windows**: Uses MinGW or MSVC toolchain
+- **Linux**: Requires X11 and XTest (`pkg-config xtst`); software rendering backend by default (override with `QT_QUICK_BACKEND` env var before launch)
+- **Windows**: Uses MinGW or MSVC toolchain (`scripts/windows-*.ps1`)
 - **macOS**: Requires macOS SDK and ApplicationServices framework
 
 ## Project Structure
@@ -35,158 +32,128 @@ sudo ldconfig
 ### Source Organization
 ```
 src/
-├── main.cpp              # Application entry point
-├── controller.h/cpp      # Main business logic and API communication
-├── hotkey.h/cpp          # Global hotkey management
-├── updater.h/cpp         # Application update functionality
-├── stdafx.h              # Common macros and precompiled headers
-└── theme/
-    ├── ThemeManager.h/cpp # Dark/light theme management system
-
+├── main.cpp                        # Entry point, CLI, single-instance bootstrap
+├── stdafx.h                        # Q_PROPERTY_AUTO macro and common defs
+├── app/
+│   ├── ApplicationCommandServer.*  # Local socket server for single-instance commands
+├── input/
+│   ├── GlobalShortcutManager.*     # Public shortcut facade (QML type)
+│   ├── ShortcutBackend.h           # Abstract shortcut backend interface
+│   ├── QHotkeyShortcutBackend.*    # QHotkey-based backend (disabled on Wayland)
+│   ├── SelectionTextProvider.*     # Selected-text extraction per platform (QML type)
+│   └── ClipboardGuard.*            # Save/restore clipboard around simulated copy
+├── providers/
+│   ├── ProviderEndpointBuilder.*   # Chat/models URL normalization per provider
+│   ├── ModelDiscoveryService.*     # /v1/models + ollama /api/tags detection (QML type)
+│   └── ThinkingPolicy.*            # Per-vendor "suppress thinking" request params
+├── settings/
+│   └── Setting.*                   # config.json load/save + active provider config
+├── translation/
+│   ├── TranslationService.*        # Streaming chat-completion client (QML type)
+│   ├── StreamParser.*              # SSE chunk parser (OpenAI-compatible + raw JSON)
+│   ├── TranslationRequest.*        # Request struct + QVariantMap conversion
+│   └── PromptBuilder.*             # Per-mode system/user prompt construction
 qml/
-├── main.qml              # Main application window
-├── AppView.qml           # Primary translation interface
-├── SettingView.qml       # Settings/preferences UI
-├── GPopWindow.qml        # Popup window component
-└── StyledComponent.qml   # Reusable UI components
-
-res/                      # Resource files (images, icons)
-lib/                      # Third-party dependencies (QHotkey)
-docs/                     # Architecture and requirements documentation
+├── main.qml                        # Main window, tray, drag, shortcuts, command dispatch
+├── AppView.qml                     # Translation interface
+├── SettingView.qml                 # Settings UI (provider/model/hotkey)
+├── GTextEdit.qml                   # Flickable-based text editor
+├── IconButton.qml                  # Image-based stateful button
+├── ThemeColors.qml                 # Dark-palette singleton (registered in qmldir)
+└── qmldir                          # QML module registration
+lib/                                # Third-party dependencies (QHotkey)
+docs/                               # Phased implementation blueprints
+scripts/                            # Windows build/publish scripts
 ```
 
 ## Key Patterns and Conventions
 
 ### C++ Coding Standards
-- **Header Guards**: Use `#ifndef CLASSNAME_H` / `#define CLASSNAME_H` pattern
-- **QML Integration**: Use `qmlRegisterType<ClassName>("Module",1,0,"TypeName")` for QML exposure
-- **Properties**: Use `Q_PROPERTY_AUTO(TYPE, member)` macro from `stdafx.h` for automatic property generation
-- **Signals/Slots**: Follow Qt naming conventions (`memberChanged()` signals)
+- **Header Guards**: `#ifndef CLASSNAME_H` / `#define CLASSNAME_H`
+- **QML Integration**: `qmlRegisterType<T>("TransAI", 1, 0, "TypeName")` in main.cpp
+- **Properties**: `Q_PROPERTY_AUTO(TYPE, member)` macro from `stdafx.h` (const getter, const-ref setter)
+- **Services**: QML-instantiated types expose signals (`translationStarted/Finished/Failed/Stopped`)
 
 ### QML Patterns
-- **Theme Colors**: Centralized color definitions in `AppView.qml` using property aliases
-- **Window Management**: Use `ensureWindowVisible()` function to keep windows on screen
-- **Component Lifecycle**: Properly manage dynamic component creation/destruction for popup windows
-- **Platform Detection**: Use `Qt.platform.os` for platform-specific UI adjustments
-
-### Theme System Architecture
-- **ThemeManager**: Central C++ class managing dark/light theme state
-- **ThemeController**: QML-accessible wrapper for theme operations
-- **Color Palette**: Defined in QML with fallback values for theme colors
-- **Persistence**: Theme state saved via QSettings and restored on startup
-
-## Configuration Management
+- **Theme Colors**: Single source of truth is the `ThemeColors` singleton (qml/ThemeColors.qml). Views alias needed tokens as readonly properties; do not hardcode palette hex values.
+- **Declarative state**: Avoid imperative assignments that break bindings (e.g. opacity driven by MouseArea state must stay a binding).
+- **Window Management**: `ensureWindowVisible()` keeps windows on screen; auto-hide on focus loss unless pinned
+- **Platform Detection**: `Qt.platform.os` for platform-specific UI adjustments
 
 ### Settings Storage
-- **Location**: Platform-specific config directories (AppConfigLocation)
-- **Format**: JSON configuration file (`config.json`)
-- **Properties**: API key, server URL, model selection, shortcut keys
+- Location: `QStandardPaths::AppConfigLocation` (`~/.config/TransAI/config.json` on Linux)
+- Format: JSON; per-provider keys (`openaiApiServer/openaiApiKey/openaiModel`, `ollamaApiServer/ollamaModel`) plus active `provider`, `thinkingMode`, `shortCut` and legacy top-level `apiKey/apiServer/model` for backward compatibility
+- API keys are stored in plain text; the file is chmod 600 on Unix
 
-### Key Settings
-```json
-{
-  "apiKey": "your-openai-api-key",
-  "apiServer": "https://api.openai.com",
-  "model": "gpt-3.5-turbo",
-  "shortCut": "Ctrl+Shift+T"
-}
-```
+### Single-Instance & Selection Translation
+- `TransAI --translate-selection` / `--background` / plain launch: command forwarded over a local socket (`$XDG_RUNTIME_DIR/transai-command`) to the running instance; first instance becomes the server
+- Wayland: QHotkey is disabled; users bind their own desktop hotkey to `TransAI --translate-selection`
+- X11: selection read via simulated Ctrl+C with clipboard guard; Wayland: `wl-paste --primary` with Qt primary-selection fallback
+
+### API Communication
+- **Streaming**: SSE parsing with cross-chunk buffering; `[DONE]` handling; raw-JSON fallback for error bodies
+- **Timeouts**: 30s inactivity (translation), 15s (model detection)
+- **Error model**: one terminal signal per request (`translationFinished` / `translationFailed` / `translationStopped`)
+- **Thinking suppression**: `ThinkingPolicy` picks vendor-specific params (DeepSeek `thinking.type`, Qwen `enable_thinking`, Ollama `think`, OpenAI `reasoning_effort`) plus `/no_think` and direct-answer prompt hints
 
 ## Important Gotchas
 
 ### Platform-Specific Issues
-1. **Linux/Wayland**: Application defaults to software rendering backend due to graphics pipeline issues
-2. **Linux/Hyprland**: QWaylandDataOffer timeout errors fixed in recent commits
-3. **macOS**: Requires ApplicationServices framework for accessibility features
-4. **Windows**: Uses resource files for application icons and metadata
+1. **Linux**: `QT_QUICK_BACKEND=software` is the default (GPU pipeline failures); users can override the env var
+2. **Wayland**: global hotkey registration is not available; use the command-server path
+3. **macOS**: ApplicationServices framework required for simulated copy
+4. **Qt logging on systemd distros**: qDebug output goes to the systemd journal, not stderr; use `journalctl --user` when debugging, or `QT_FORCE_STDERR_LOGGING=1`
 
 ### Window Management
-- **Always On Top**: Application defaults to `WindowStaysOnTopHint` flag on startup
-- **Auto-Close**: Main window hides with fade animation when losing focus (unless pinned)
-- **Screen Boundaries**: Window position automatically constrained to visible screen area
-
-### Hotkey System
-- **Global Shortcuts**: Uses QHotkey library for system-wide hotkey registration
-- **Configuration**: Shortcut can be customized via settings
-- **Activation**: Hotkey triggers text translation from anywhere in the system
-
-### API Communication
-- **Streaming**: Uses QNetworkAccessManager for streaming API responses
-- **Error Handling**: Comprehensive error parsing for API failures
-- **Abort Support**: Requests can be cancelled mid-translation
+- Always-on-top is enabled by default at startup; the pin toggle mutates `mainWindow.flags`
+- Main window hides with fade animation on focus loss (unless pinned)
 
 ## Testing Strategy
 
 ### Current State
-- No formal test suite exists in the repository
-- Manual testing guided by QA gates in `docs/qa/gates/`
-- Architecture designed for testability with clear separation of concerns
+- No formal test suite; manual testing guided by `docs/qa/gates/` when applicable
+- Smoke test without a display:
+  ```bash
+  QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software ./build/TransAI --background
+  QT_QPA_PLATFORM=offscreen ./build/TransAI --translate-selection   # from a 2nd process
+  ```
+- Check QML/engine errors via `journalctl --user` (see logging gotcha above)
 
 ### Recommended Test Areas
-1. **Theme System**: Dark/light theme switching and persistence
-2. **Hotkey Registration**: Cross-platform shortcut handling
-3. **API Integration**: Network request/response handling
-4. **Configuration**: Settings load/save operations
-5. **Window Behavior**: Auto-hide, pinning, and screen boundary constraints
-
-## Build and Deployment Scripts
-
-### Linux Build Script (`build_install.sh`)
-- Automated Qt path detection
-- Release build configuration
-- System installation with proper RPATH settings
-- Dynamic library cache refresh
-
-### Windows Build Scripts
-- PowerShell scripts for MinGW and MSVC environments
-- Static linking configuration options
-- Resource compilation for application metadata
+1. Provider switch openai ↔ ollama and config persistence
+2. Model detection against OpenAI-compatible and Ollama endpoints
+3. Hotkey re-registration from the settings page
+4. Streaming translation abort (partial result + Stopped status)
+5. Single-instance command forwarding with a stale socket file
 
 ## Documentation References
 
-### Architecture Documents
-- `docs/architecture.md` - Overall technical architecture
-- `docs/architecture/` - Detailed implementation guides
-- `docs/prd.md` - Product requirements and feature specifications
-- `docs/stories/` - User stories and implementation details
-
-### Key Features Documentation
-- Dark theme system implementation
-- Input box interaction optimization
-- Automatic window closing behavior
-- Word selection translation functionality
+- `docs/phase-1-architecture-refactor.md` - Module split blueprint (implemented)
+- `docs/phase-2*.md` - Selection/OCR/UI blueprints (2A implemented; 2B/2C/2D pending)
+- `docs/hyprland-integration.md` - Wayland compositor notes
 
 ## Development Workflow
 
 ### Git Conventions
-- Feature branches for new functionality
-- Descriptive commit messages in English or Chinese
-- Regular integration with main branch
+- Feature branches; descriptive commit messages in English or Chinese
+- Conventional-commit style seen in history: `feat(scope):`, `refactor(scope):`, `docs:`, `style(qml):`
 
 ### Code Organization
-- C++ backend logic with QML frontend
-- Clear separation between business logic and UI
-- Resource files embedded via Qt resource system
-- Internationalization support for multiple languages
+- C++ backend logic with QML frontend; clear separation between services and UI
+- Resources embedded via Qt resource system (TransAI.qrc)
+- i18n: translator loading is wired in main.cpp but no .qm files are bundled yet; UI strings are largely untranslated (see TransAI_zh_CN.ts)
 
 ## Common Development Tasks
 
 ### Adding New QML Components
-1. Create component in `qml/` directory
-2. Import necessary QtQuick modules
-3. Follow existing theme color patterns
-4. Test across all target platforms
-
-### Modifying Theme System
-1. Update `ThemeManager` for new color properties
-2. Modify QML color definitions in `AppView.qml`
-3. Test theme switching functionality
-4. Verify persistence across application restarts
+1. Create the component in `qml/`
+2. Import required modules; reference `ThemeColors` for palette tokens
+3. Add the file to `TransAI.qrc` (and `qml/qmldir` if it is a singleton)
+4. Test on all target platforms
 
 ### Extending Settings
-1. Add properties to `Setting` class
-2. Update JSON serialization in `loadConfig()`/`updateConfig()`
-3. Add UI controls in `SettingView.qml`
-4. Test configuration persistence
+1. Add keys to `Setting::loadConfig()`/`updateConfig()` (keep legacy keys for migration)
+2. Add UI controls in `SettingView.qml`; use `saveConfigSoon()` for text inputs (debounced)
+3. Verify persistence across restarts
 
-This guide provides essential information for agents working on the TransAI project. Refer to specific documentation files for detailed implementation guidelines.
+This guide reflects the codebase as of the Phase 1 refactor + Wayland selection work. Update it when modules move.

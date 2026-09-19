@@ -39,7 +39,6 @@ endif()
 
 set(HEADERS
     src/stdafx.h
-    src/updater.h
     src/app/ApplicationCommandServer.h
     src/settings/Setting.h
     src/translation/TranslationRequest.h
@@ -57,7 +56,6 @@ set(HEADERS
 )
 set(SOURCES
     src/main.cpp
-    src/updater.cpp
     src/app/ApplicationCommandServer.cpp
     src/settings/Setting.cpp
     src/translation/TranslationRequest.cpp
@@ -97,10 +95,6 @@ ELSEIF (CMAKE_SYSTEM_NAME MATCHES "Windows")
     )
 
     set_target_properties(TransAI PROPERTIES
-        MACOSX_BUNDLE_GUI_IDENTIFIER tinyx.me
-        MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
-        MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}
-        MACOSX_BUNDLE TRUE
         WIN32_EXECUTABLE TRUE
     )
 ELSEIF (CMAKE_SYSTEM_NAME MATCHES "Darwin")
@@ -118,22 +112,22 @@ ELSEIF (CMAKE_SYSTEM_NAME MATCHES "Darwin")
     )
 
     set_target_properties(TransAI PROPERTIES
-        MACOSX_BUNDLE_GUI_IDENTIFIER tinyx.me
-        MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
-        MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}
         MACOSX_BUNDLE TRUE
-        WIN32_EXECUTABLE TRUE
     )
 
 ENDIF()
 
-
+# Common bundle metadata shared by all platforms.
+set_target_properties(TransAI PROPERTIES
+    MACOSX_BUNDLE_GUI_IDENTIFIER tinyx.me
+    MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
+    MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}
+)
 
 include_directories("src")
 
 
 IF (CMAKE_SYSTEM_NAME MATCHES "Windows")
-    if(DEFINED IS_MINGW)
     target_link_libraries(TransAI
         PRIVATE
         Qt6::Quick
@@ -142,16 +136,6 @@ IF (CMAKE_SYSTEM_NAME MATCHES "Windows")
         qhotkey
         user32
         )
-    else()
-    target_link_libraries(TransAI
-        PRIVATE
-        Qt6::Quick
-        Qt6::Network
-
-        qhotkey
-        user32
-        )
-    endif()
 ELSEIF (CMAKE_SYSTEM_NAME MATCHES "Linux")
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(XTST REQUIRED xtst)

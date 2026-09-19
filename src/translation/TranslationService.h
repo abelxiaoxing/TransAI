@@ -34,6 +34,7 @@ signals:
     void translationStarted();
     void translationFinished(QString result);
     void translationFailed(QString error);
+    void translationStopped();
 
 private:
     void translate(const TranslationRequest& request);

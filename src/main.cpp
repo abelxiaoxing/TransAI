@@ -8,7 +8,6 @@
 
 #include "app/ApplicationCommandServer.h"
 #include "settings/Setting.h"
-#include "updater.h"
 #include <QIcon>
 
 #include "input/GlobalShortcutManager.h"
@@ -23,7 +22,7 @@ int main(int argc, char *argv[])
        qDebug() << "Current OS: Windows";
     #endif
 
-    #ifdef Q_OS_MAC
+    #ifdef Q_OS_MACOS
        qDebug() << "Current OS: macOS";
     #endif
 
@@ -32,7 +31,12 @@ int main(int argc, char *argv[])
     #endif
 
     #ifdef Q_OS_LINUX
-        qputenv("QT_QUICK_BACKEND","software");//Failed to build graphics pipeline state under linux, need to be software
+        // Software rendering works around GPU pipeline failures on some Linux
+        // systems. Users can still override by exporting QT_QUICK_BACKEND
+        // before launching (e.g. QT_QUICK_BACKEND=quick for hardware access).
+        if (!qEnvironmentVariableIsSet("QT_QUICK_BACKEND")) {
+            qputenv("QT_QUICK_BACKEND", "software");
+        }
     #endif
 
     QGuiApplication app(argc, argv);
@@ -84,6 +88,9 @@ int main(int argc, char *argv[])
     const QStringList uiLanguages = QLocale::system().uiLanguages();
     for (const QString &locale : uiLanguages) {
         const QString baseName = "TransAI_" + QLocale(locale).name();
+        // NOTE: no .qm files are bundled yet (source strings live in
+        // TransAI_zh_CN.ts). This loop degrades gracefully until translations
+        // are compiled into the resource.
         if (translator.load(":/i18n/" + baseName)) {
             app.installTranslator(&translator);
             break;
@@ -91,7 +98,6 @@ int main(int argc, char *argv[])
     }
 
     Setting * setting = new Setting(&app);
-    qmlRegisterType<Updater>("Updater",1,0,"APIUpdater");
     qmlRegisterType<TranslationService>("TransAI", 1, 0, "TranslationService");
     qmlRegisterType<ModelDiscoveryService>("TransAI", 1, 0, "ModelDiscoveryService");
     qmlRegisterType<GlobalShortcutManager>("TransAI", 1, 0, "GlobalShortcutManager");
@@ -99,7 +105,7 @@ int main(int argc, char *argv[])
 
 
     QQmlApplicationEngine engine;
-    const QUrl url(u"qrc:///qml/main.qml"_qs);
+    const QUrl url(QStringLiteral("qrc:///qml/main.qml"));
     engine.rootContext()->setContextProperty("setting", setting);
     engine.rootContext()->setContextProperty("app", &app);
     engine.rootContext()->setContextProperty("appCommandServer", &commandServer);

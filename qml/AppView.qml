@@ -17,29 +17,29 @@ Item {
     property bool statusBusy: false
     signal settingClicked;
 
-    // 主题颜色定义
-    readonly property color backgroundColor: "#090D13"
-    readonly property color foreground: "#E8F3F7"
-    readonly property color accent: "#65F4D6"
-    readonly property color accentHover: "#8CFFE8"
-    readonly property color accentPurple: "#7C5CFF"
-    readonly property color border: "#243445"
-    readonly property color borderActive: "#65F4D6"
-    readonly property color backgroundSecondary: "#121A24"
-    readonly property color panelColor: "#141F2A"
-    readonly property color panelColorAlt: "#101720"
-    readonly property color fieldColor: "#0D141D"
-    readonly property color error: "#F48771"
-    readonly property color success: "#4EC9B0"
-    readonly property color warning: "#FFD166"
+    // 主题颜色（统一来自 ThemeColors 单例）
+    readonly property color backgroundColor: ThemeColors.background
+    readonly property color foreground: ThemeColors.foreground
+    readonly property color accent: ThemeColors.accent
+    readonly property color accentHover: ThemeColors.accentHover
+    readonly property color accentPurple: ThemeColors.accentPurple
+    readonly property color border: ThemeColors.border
+    readonly property color borderActive: ThemeColors.borderActive
+    readonly property color backgroundSecondary: ThemeColors.backgroundSecondary
+    readonly property color panelColor: ThemeColors.panelColor
+    readonly property color panelColorAlt: ThemeColors.panelColorAlt
+    readonly property color fieldColor: ThemeColors.fieldColor
+    readonly property color error: ThemeColors.error
+    readonly property color success: ThemeColors.success
+    readonly property color warning: ThemeColors.warning
+    readonly property color infoBg: ThemeColors.infoBg
+    readonly property color warningBg: ThemeColors.warningBg
+    readonly property color infoText: ThemeColors.infoText
+    readonly property color warningText: ThemeColors.warningText
     readonly property int fontSizeSmall: 12
     readonly property int fontSizeNormal: 16
     readonly property int fontSizeLarge: 18
     readonly property real radius: 8
-    readonly property color infoBg: "#122033"
-    readonly property color warningBg: "#2D1D2F"
-    readonly property color infoText: "#8DD9FF"
-    readonly property color warningText: "#FF9BAA"
     function startTrans(source){
         if (inputArea.text.length === 0) {
             return
@@ -69,8 +69,6 @@ Item {
     }
 
     Component.onCompleted: {
-        inputAni.to = root.height /3
-        inputAni.start()
         // 应用启动时默认置顶
         mainWindow.flags = mainWindow.flags | Qt.WindowStaysOnTopHint
         tItem.state = "yes"
@@ -84,9 +82,9 @@ Item {
         z:0
         color: backgroundColor
         gradient: Gradient {
-            GradientStop { position: 0.0; color: "#101827" }
+            GradientStop { position: 0.0; color: ThemeColors.gradientTop }
             GradientStop { position: 0.52; color: backgroundColor }
-            GradientStop { position: 1.0; color: "#070A10" }
+            GradientStop { position: 1.0; color: ThemeColors.gradientBottom }
         }
     }
 
@@ -251,11 +249,14 @@ Item {
             autoScroll:false
             textedit.focus : true
         }
-        NumberAnimation on height {
-            id:inputAni
-            to: root.height/3
-            duration: 80
+        // Height follows the window so the layout stays usable after resizing;
+        // the Behavior keeps the (formerly animated) intro transition subtle.
+        Behavior on height {
+            NumberAnimation {
+                duration: 80
+            }
         }
+        height: root.height / 3
     }
 
     Item{
@@ -275,7 +276,7 @@ Item {
             MouseArea{
                 anchors.fill: parent
                 onClicked: {
-                    mainWindow.flags = mainWindow.flags & (0xFFFFFFFF ^ Qt.WindowStaysOnTopHint)
+                    mainWindow.flags = mainWindow.flags & ~Qt.WindowStaysOnTopHint
                     tItem.state = "no"
                     pinned = false
 
@@ -454,7 +455,7 @@ Item {
         anchors.margins:10
         opacity: 1
         currentIndex: 0
-        model:["简体中文","繁体中文", "English", "Japanse", "German", "Korean", "Español", "français"]
+        model:["简体中文","繁体中文", "English", "Japanese", "German", "Korean", "Español", "français"]
         onCurrentTextChanged: {
             // TranslationService receives targetLanguage per request.
         }
@@ -583,6 +584,10 @@ Item {
                 transBtn.visible = true
                 stopBtn.visible = false
             }
+        }
+        onTranslationStopped: {
+            // Keep the partial result visible, but distinguish it from Ready.
+            root.statusText = "Stopped"
         }
     }
 }

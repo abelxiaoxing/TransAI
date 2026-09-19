@@ -15,6 +15,7 @@ ModelDiscoveryService::ModelDiscoveryService(QObject* parent)
     , m_reply(nullptr)
     , m_isDetecting(false)
 {
+    m_networkManager->setTransferTimeout(15 * 1000);
 }
 
 QStringList ModelDiscoveryService::availableModels() const

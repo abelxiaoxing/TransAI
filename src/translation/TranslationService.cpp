@@ -14,6 +14,9 @@ TranslationService::TranslationService(QObject* parent)
     , m_reply(nullptr)
     , m_isRequesting(false)
 {
+    // Abort requests that see no data for 30s so the UI never gets stuck in
+    // the requesting state. The timeout resets whenever data keeps streaming.
+    m_networkManager->setTransferTimeout(30 * 1000);
 }
 
 QString TranslationService::responseData() const
@@ -38,7 +41,11 @@ void TranslationService::translateFromMap(const QVariantMap& requestMap)
 
 void TranslationService::abort()
 {
+    if (!m_reply) {
+        return;
+    }
     cancelCurrentRequest();
+    emit translationStopped();
 }
 
 void TranslationService::cancelCurrentRequest()
@@ -67,8 +74,9 @@ void TranslationService::handleStreamData(QNetworkReply* reply)
         setResponseData(m_responseData + result.content);
     }
     if (result.hasError && !result.errorMessage.isEmpty()) {
+        // Record the error but do not emit translationFailed here; the
+        // finished handler emits exactly one terminal signal per request.
         setResponseError(result.errorMessage);
-        emit translationFailed(result.errorMessage);
     }
 }
 
@@ -221,20 +229,23 @@ void TranslationService::setIsRequesting(bool isRequesting)
 
 QString TranslationService::networkErrorMessage(QNetworkReply::NetworkError error) const
 {
+    // QNetworkReply error-code ranges (see QNetworkReply documentation):
+    //   1-99 network, 101-199 proxy, 201-299 content (covers HTTP 401/403/404),
+    //   301-399 protocol, 401-499 server-side.
     if (error > 0 && error < 100) {
-        return "network error";
+        return "Network error: could not reach the server";
     }
     if (error > 100 && error < 200) {
-        return "proxy error";
+        return "Proxy error: could not reach the server through the proxy";
     }
     if (error > 200 && error < 300) {
-        return "content error";
+        return "Request rejected: check the API key, model name and server URL";
     }
     if (error > 300 && error < 400) {
-        return "protocol error";
+        return "Protocol error: unexpected response from the server";
     }
     if (error > 400 && error < 500) {
-        return "server error";
+        return "Server error: the API server failed to handle the request";
     }
-    return "network error";
+    return "Network error";
 }

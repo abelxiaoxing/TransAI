@@ -4,8 +4,6 @@ import QtQuick.Window
 import QtQuick.Layouts
 import Qt.labs.platform
 
-import "."
-
 import TransAI
 
 
@@ -16,13 +14,11 @@ Window {
     height: 700
     minimumHeight: 500
     minimumWidth: 400
-    title: qsTr("GPT Translator")
+    title: "TransAI"
 
     // 应用主题样式
-    color: "#1E1E1E"
+    color: ThemeColors.background
 
-    property Component  popComponent: null
-    property QtObject  popW: null
     property bool isDraggingWindow: false
     property bool usingSystemMove: false
 
@@ -36,6 +32,7 @@ Window {
     }
 
     function handleApplicationCommand(command) {
+        console.log("Application command:", command)
         if (command === "translate-selection") {
             selectionTextProvider.requestSelectedText()
         } else if (command === "show") {
@@ -74,32 +71,6 @@ Window {
         }
     }
 
-    function popWindow(t, pos){
-
-        if(popComponent !== null){
-            popW.close()
-             popComponent.destroy()
-        }
-
-        popComponent = Qt.createComponent("GPopWindow.qml")
-        if (popComponent.status === Component.Ready) {
-            popW = popComponent.createObject(mainWindow)
-            if (popW) {
-                popW.x = pos.x
-                popW.y = pos.y
-                popW.visible = true
-                popW.show()
-                popW.raise()
-                popW.requestActivate()
-                mainWindow.visible = false
-            } else {
-                console.error("Error creating new window:", popComponent.errorString())
-            }
-        } else {
-            console.error("Error loading DynamicWindow component:", popComponent.errorString())
-        }
-
-    }
     function beginWindowDrag() {
         closeWindowAnimation.stop()
         mainWindow.opacity = 1
@@ -169,7 +140,7 @@ Window {
     MouseArea{
         id:mouseArea
        anchors.fill: parent
-       property variant clickPos: "1,1"
+       property point clickPos: Qt.point(0, 0)
        onClicked: {
 
        }

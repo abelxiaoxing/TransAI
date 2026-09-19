@@ -9,10 +9,10 @@ Flickable {
     property alias readOnly: textedit.readOnly
     property alias textedit: textedit
 
-    // 主题颜色定义
-    readonly property color foreground: "#D4D4D4"
-    readonly property color accentHover: "#5ED9C0"
-    readonly property color background: "#1E1E1E"
+    // 主题颜色（统一来自 ThemeColors 单例）
+    readonly property color foreground: ThemeColors.foreground
+    readonly property color accentHover: ThemeColors.accentHover
+    readonly property color background: ThemeColors.background
     readonly property int fontSizeNormal: 20
     readonly property int spacing: 8
 
@@ -30,15 +30,10 @@ Flickable {
     }
     ScrollBar.vertical:ScrollBar {
         id: scrollbar
-//        anchors {
-//            top: parent.top
-//            right: parent.right
-//            bottom: parent.bottom
-//        }
         width:10
         orientation: Qt.Vertical
-        size: flick.height / flick.contentHeight
-
+        // Guard against division by zero while content height is being measured.
+        size: flick.contentHeight > 0 ? Math.min(1, flick.height / flick.contentHeight) : 1
     }
 
     onContentHeightChanged: {
@@ -74,7 +69,6 @@ Flickable {
         width:flick.width
         height: Math.max(implicitHeight, flick.height)
         font.pixelSize: flick.fontSizeNormal
-        selectByMouse:true
         selectByKeyboard:true
         color:flick.foreground
         selectionColor: flick.accentHover
