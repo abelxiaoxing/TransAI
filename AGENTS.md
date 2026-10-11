@@ -114,7 +114,15 @@ scripts/                            # Windows build/publish scripts
 ## Testing Strategy
 
 ### Current State
-- No formal test suite; manual testing guided by `docs/qa/gates/` when applicable
+- Unit tests for the pure-logic modules live in `tests/` (StreamParser,
+  ThinkingPolicy, ProviderEndpointBuilder), built when Qt6::Test is
+  available:
+  ```bash
+  cmake -D CMAKE_BUILD_TYPE=Release -D CMAKE_PREFIX_PATH="$QT_PATH" ..
+  ctest --test-dir build --output-on-failure
+  ```
+- UI/backend behavior beyond that is manual, guided by `docs/qa/gates/` when
+  applicable
 - Smoke test without a display:
   ```bash
   QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software ./build/TransAI --background

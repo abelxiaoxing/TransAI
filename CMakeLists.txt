@@ -163,3 +163,11 @@ ENDIF()
 install(TARGETS TransAI
     BUNDLE DESTINATION .
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
+
+# Optional unit tests (pure-logic modules); skipped silently when Qt6::Test
+# is not installed. Run with: ctest --test-dir build
+find_package(Qt6 QUIET COMPONENTS Test)
+if (TARGET Qt6::Test)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
