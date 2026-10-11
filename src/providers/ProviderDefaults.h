@@ -17,6 +17,12 @@ inline QString ollamaApiServer()
     return QStringLiteral("http://localhost:11434");
 }
 
+// Default OpenAI chat model, used whenever the stored model name is empty.
+inline QString openAiDefaultModel()
+{
+    return QStringLiteral("gpt-3.5-turbo");
+}
+
 inline QString normalizedProviderName(const QString& provider)
 {
     return provider.trimmed().toLower() == QLatin1String("ollama")

@@ -36,14 +36,6 @@ bool isQwenReasoningModel(const QString& model)
         || (m.contains(QLatin1String("qwen")) && m.contains(QLatin1String("think")));
 }
 
-bool isQwenNewGenModel(const QString& model)
-{
-    // Qwen3.5 / 3.6 / 3.7 / 3.8 generation (e.g. "qwen3.8-flash", "qwen3.5-9b").
-    // These generations officially expose reasoning_effort (default xhigh!)
-    // in addition to enable_thinking.
-    return model.toLower().contains(QLatin1String("qwen3."));
-}
-
 bool isOpenAiReasoningModel(const QString& model)
 {
     // o1 / o1-mini / o3 / o3-mini / o4-mini / gpt-5 ...
@@ -57,23 +49,17 @@ bool looksLikeThinkingModel(const QString& model)
     return containsAny(m, { "think", "reason", "qwq", "r1", "minimax" }) || isOpenAiReasoningModel(m);
 }
 
-// Qwen hybrid-thinking models:
-//  - Qwen Cloud / DashScope OpenAI-compatible endpoints accept the top-level
-//    `enable_thinking: false` (their docs explicitly say to use the top-level
-//    field, not chat_template_kwargs).
-//  - vLLM / SGLang / Azure Foundry style servers for the Qwen3.5+ generation
-//    accept `reasoning_effort` ("low" is the smallest level; the default is
-//    "xhigh", i.e. maximum thinking).
-//  - The /no_think prompt tag is a documented per-turn override for Qwen
-//    hybrid models and is safe on every Qwen endpoint.
-// Sending all layers at once guarantees suppression even when the upstream
+// Qwen hybrid-thinking models (Qwen Cloud / DashScope OpenAI-compatible
+// endpoints, self-hosted vLLM/SGLang servers):
+//  - the top-level `enable_thinking: false` field (their docs explicitly ask
+//    for the top-level field, not chat_template_kwargs),
+//  - the /no_think prompt tag, a documented per-turn override that is safe on
+//    every Qwen endpoint.
+// Sending both layers at once guarantees suppression even when the upstream
 // only honors one of them; unknown fields are ignored by the rest.
-void applyQwenPolicy(ThinkingPolicy& policy, bool newGeneration)
+void applyQwenPolicy(ThinkingPolicy& policy)
 {
     policy.bodyParams.insert("enable_thinking", false);
-    if (newGeneration) {
-        policy.bodyParams.insert("reasoning_effort", "low");
-    }
     policy.noThinkTag = true;
 }
 
@@ -115,7 +101,7 @@ ThinkingPolicy ThinkingPolicyBuilder::build(const QString& provider, const QStri
             // endpoint too and ignored by non-thinking models.
             policy.bodyParams.insert("think", false);
         } else if (modeKey == QLatin1String("qwen")) {
-            applyQwenPolicy(policy, true);
+            applyQwenPolicy(policy);
         } else if (modeKey == QLatin1String("deepseek")) {
             if (isDeepSeekReasonerModel(m)) {
                 policy.noThinkTag = true;
@@ -141,10 +127,10 @@ ThinkingPolicy ThinkingPolicyBuilder::build(const QString& provider, const QStri
     }
 
     // 2) OpenRouter: cap the reasoning effort to "low" for thinking models.
-    //    Non-thinking models are left untouched to avoid provider errors.
+    //    OpenRouter normalizes and ignores the parameter for models without
+    //    reasoning support; non-matching aliases are left untouched.
     if (host.contains(QLatin1String("openrouter.ai"))) {
-        if (looksLikeThinkingModel(m)
-            || containsAny(m, { "deepseek", "qwen", "gpt-5", "kimi", "claude", "grok", "mistral", "gemini-2.5" })) {
+        if (looksLikeThinkingModel(m) || isQwenReasoningModel(m) || isDeepSeekModel(m)) {
             policy.bodyParams.insert("reasoning", QJsonObject({ { "effort", "low" } }));
         }
         return policy;
@@ -166,7 +152,7 @@ ThinkingPolicy ThinkingPolicyBuilder::build(const QString& provider, const QStri
     // 4) Qwen hybrid-thinking models (Qwen Cloud / DashScope compatible
     //    endpoints and self-hosted vLLM/SGLang servers).
     if (isQwenReasoningModel(m)) {
-        applyQwenPolicy(policy, isQwenNewGenModel(m));
+        applyQwenPolicy(policy);
         return policy;
     }
 

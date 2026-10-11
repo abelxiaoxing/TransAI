@@ -2,29 +2,6 @@
 
 #include "providers/ThinkingPolicy.h"
 
-namespace {
-QString normalizedString(const QString& value)
-{
-    QString normalized = value.trimmed().toLower();
-    normalized.remove('_');
-    normalized.remove('-');
-    normalized.remove(' ');
-    return normalized;
-}
-}
-
-TranslationMode translationModeFromString(const QString& value)
-{
-    const QString mode = normalizedString(value);
-    if (mode == "1" || mode == "explain" || mode == "explainword" || mode == "word") {
-        return TranslationMode::ExplainWord;
-    }
-    if (mode == "2" || mode == "correct" || mode == "correctgrammar" || mode == "grammar") {
-        return TranslationMode::CorrectGrammar;
-    }
-    return TranslationMode::Translate;
-}
-
 TranslationMode translationModeFromInt(int value)
 {
     switch (value) {
@@ -48,12 +25,8 @@ TranslationRequest translationRequestFromMap(const QVariantMap& map)
     request.apiKey = map.value("apiKey").toString();
     request.model = map.value("model").toString();
 
-    const QVariant mode = map.value("mode", 0);
-    if (mode.typeId() == QMetaType::Int || mode.typeId() == QMetaType::LongLong || mode.typeId() == QMetaType::UInt || mode.typeId() == QMetaType::ULongLong) {
-        request.mode = translationModeFromInt(mode.toInt());
-    } else {
-        request.mode = translationModeFromString(mode.toString());
-    }
+    // The QML UI only ever sends numeric mode codes (see AppView.getMode()).
+    request.mode = translationModeFromInt(map.value("mode", 0).toInt());
 
     request.thinkingMode =
         ThinkingPolicyBuilder::normalizeThinkingMode(map.value("thinkingMode", "auto").toString());

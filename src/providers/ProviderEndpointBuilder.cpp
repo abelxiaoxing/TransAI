@@ -2,48 +2,66 @@
 
 #include "providers/ProviderDefaults.h"
 
+namespace {
+
+// Resolves the request base URL: explicit server, else the provider default.
+QUrl requestUrl(const QString& apiServer, const QString& defaultServer)
+{
+    const QString trimmed = apiServer.trimmed();
+    return QUrl(trimmed.isEmpty() ? defaultServer : trimmed);
+}
+
+// Drops trailing slashes so the suffix matching below sees stable paths.
+QString trimTrailingSlash(QString path)
+{
+    while (path.endsWith('/')) {
+        path.chop(1);
+    }
+    return path;
+}
+
+// Removes the first matching known endpoint suffix, if any.
+void stripKnownSuffix(QString& path, std::initializer_list<const char*> suffixes)
+{
+    for (const char* suffix : suffixes) {
+        if (path.endsWith(QLatin1String(suffix))) {
+            path.chop(static_cast<qsizetype>(qstrlen(suffix)));
+            return;
+        }
+    }
+}
+
+} // namespace
+
 QUrl ProviderEndpointBuilder::buildChatCompletionUrl(const QString& apiServer, const QString& provider) const
 {
     const QString normalizedProvider = ProviderDefaults::normalizedProviderName(provider);
-    const QString defaultServer = ProviderDefaults::defaultApiServerForProvider(normalizedProvider);
-    QUrl url(apiServer.trimmed().isEmpty() ? defaultServer : apiServer.trimmed());
-    QString path = url.path().trimmed();
+    QUrl url = requestUrl(apiServer, ProviderDefaults::defaultApiServerForProvider(normalizedProvider));
+    QString path = trimTrailingSlash(url.path());
 
-    if (normalizedProvider == "ollama") {
-        if (path.isEmpty() || path == "/") {
-            path = "/v1/chat/completions";
+    if (normalizedProvider == QLatin1String("ollama")) {
+        if (path.endsWith(QLatin1String("/v1"))) {
+            path += QLatin1String("/chat/completions");
         } else {
-            if (path.endsWith('/')) {
-                path.chop(1);
-            }
-            if (path.endsWith("/api/tags")) {
-                path = path.left(path.length() - QString("/api/tags").length()) + "/v1/chat/completions";
-            } else if (path.endsWith("/api/chat")) {
-                path = path.left(path.length() - QString("/api/chat").length()) + "/v1/chat/completions";
-            } else if (path.endsWith("/v1")) {
-                path += "/chat/completions";
-            } else if (!path.endsWith("/chat/completions")) {
-                path += "/v1/chat/completions";
-            }
+            // "/api/tags", "/api/chat" and pasted OpenAI-compatible
+            // endpoints ("/v1/chat/completions", "/v1/models") all reduce to
+            // the OpenAI-compatible chat endpoint.
+            stripKnownSuffix(path, {"/api/tags", "/api/chat", "/v1/chat/completions", "/v1/models", "/models"});
+            path += QLatin1String("/v1/chat/completions");
         }
-    } else if (path.isEmpty() || path == "/") {
-        path = "/v1/chat/completions";
+    } else if (path.isEmpty() || path == QLatin1String("/")) {
+        path = QLatin1String("/v1/chat/completions");
+    } else if (path.endsWith(QLatin1String("/chat/completions"))) {
+        // already correct
+    } else if (path.endsWith(QLatin1String("/models"))) {
+        // User pasted the model-list URL; swap the suffix.
+        stripKnownSuffix(path, {"/models"});
+        path += QLatin1String("/chat/completions");
+    } else if (path.endsWith(QLatin1String("/chat"))) {
+        path += QLatin1String("/completions");
     } else {
-        if (path.endsWith('/')) {
-            path.chop(1);
-        }
-
-        if (path.endsWith("/chat/completions")) {
-            // already correct
-        } else if (path.endsWith("/models")) {
-            path = path.left(path.length() - QString("/models").length()) + "/chat/completions";
-        } else if (path.endsWith("/v1")) {
-            path += "/chat/completions";
-        } else if (path.endsWith("/chat")) {
-            path += "/completions";
-        } else {
-            path += "/chat/completions";
-        }
+        // Covers base URLs ("/v1", host root with a path, anything else).
+        path += QLatin1String("/chat/completions");
     }
 
     url.setPath(path);
@@ -53,42 +71,31 @@ QUrl ProviderEndpointBuilder::buildChatCompletionUrl(const QString& apiServer, c
 
 QUrl ProviderEndpointBuilder::buildModelListUrl(const QString& apiServer, const QString& provider) const
 {
-    if (ProviderDefaults::normalizedProviderName(provider) == QLatin1String("ollama")) {
-        QUrl url(apiServer.trimmed().isEmpty() ? ProviderDefaults::ollamaApiServer() : apiServer.trimmed());
-        QString path = url.path();
-        if (path.isEmpty() || path == "/" || path == "/v1") {
-            path = "/api/tags";
-        } else if (path.contains("/v1/chat/completions")) {
-            path.replace("/v1/chat/completions", "/api/tags");
-        } else if (path.contains("/chat/completions")) {
-            path.replace("/chat/completions", "/api/tags");
-        } else if (path.contains("/api/chat")) {
-            path.replace("/api/chat", "/api/tags");
-        } else if (!path.endsWith("/api/tags")) {
-            if (path.endsWith('/')) {
-                path.chop(1);
-            }
-            path += "/api/tags";
+    const QString normalizedProvider = ProviderDefaults::normalizedProviderName(provider);
+    QUrl url = requestUrl(apiServer, ProviderDefaults::defaultApiServerForProvider(normalizedProvider));
+    QString path = trimTrailingSlash(url.path());
+
+    if (normalizedProvider == QLatin1String("ollama")) {
+        if (path.endsWith(QLatin1String("/api/tags"))) {
+            // already correct
+        } else if (path.isEmpty() || path == QLatin1String("/") || path.endsWith(QLatin1String("/v1"))) {
+            path = QLatin1String("/api/tags");
+        } else {
+            // Pasted OpenAI-compatible endpoints (chat completions, model
+            // list) reduce to the native tag list.
+            stripKnownSuffix(path, {"/v1/chat/completions", "/chat/completions", "/api/chat", "/v1/models", "/models"});
+            path += QLatin1String("/api/tags");
         }
-        url.setPath(path);
-        url.setQuery(QString());
-        return url;
+    } else {
+        stripKnownSuffix(path, {"/chat/completions"});
+        if (path.isEmpty() || path == QLatin1String("/")) {
+            path = QLatin1String("/v1");
+        }
+        if (!path.endsWith(QLatin1String("/models"))) {
+            path += QLatin1String("/models");
+        }
     }
 
-    QUrl url(apiServer.trimmed().isEmpty() ? ProviderDefaults::openAiApiServer() : apiServer.trimmed());
-    QString path = url.path();
-    if (path.endsWith("/chat/completions")) {
-        path = path.left(path.length() - QString("/chat/completions").length());
-    }
-    if (path.isEmpty() || path == "/") {
-        path = "/v1";
-    }
-    if (!path.endsWith("/models")) {
-        if (path.endsWith('/')) {
-            path.chop(1);
-        }
-        path += "/models";
-    }
     url.setPath(path);
     url.setQuery(QString());
     return url;

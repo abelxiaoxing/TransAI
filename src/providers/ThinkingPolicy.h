@@ -42,8 +42,7 @@ public:
     // Canonical thinking modes (the only accepted values, see
     // normalizeThinkingMode):
     //   "auto"    - detect the model family from the model id (recommended, default)
-    //   "qwen"    - force Qwen 3.8/3.6/3.5 controls (enable_thinking=false +
-    //               reasoning_effort=low + /no_think)
+    //   "qwen"    - force Qwen3 controls (enable_thinking=false + /no_think)
     //   "deepseek"- force DeepSeek controls (thinking.type=disabled / /no_think)
     //   "openai"  - force OpenAI o-series controls (reasoning_effort=low)
     //   "ollama"  - force Ollama controls (think=false)

@@ -26,7 +26,6 @@ struct TranslationRequest {
     QString thinkingMode = "auto";
 };
 
-TranslationMode translationModeFromString(const QString& value);
 TranslationMode translationModeFromInt(int value);
 TranslationRequest translationRequestFromMap(const QVariantMap& map);
 
