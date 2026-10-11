@@ -9,12 +9,23 @@ Item {
     property alias inputText: inputArea.text
     property bool inputHasFocus: inputArea.textedit.activeFocus
     property bool resultHasFocus: result.textedit.activeFocus
-    property string statusText: "Ready"
-    property bool statusBusy: false
+    property bool stopped: false
+    property bool selectionUnavailable: false
+
+    // Derived view state: exactly one write-path per flag (translation
+    // lifecycle signals below), everything else is a binding so the final
+    // status never depends on signal-delivery order.
+    readonly property bool statusBusy: translationService.isRequesting
+    readonly property string statusText: {
+        if (selectionUnavailable) return "Selection unavailable"
+        if (translationService.isRequesting) return "Translating..."
+        if (translationService.responseError !== "") return "Error"
+        if (stopped) return "Stopped"
+        return "Ready"
+    }
     signal settingClicked;
 
     // 主题颜色（统一来自 ThemeColors 单例）
-    readonly property color backgroundColor: ThemeColors.background
     readonly property color foreground: ThemeColors.foreground
     readonly property color accent: ThemeColors.accent
     readonly property color accentHover: ThemeColors.accentHover
@@ -50,9 +61,8 @@ Item {
 
     function showSelectionError(message) {
         translationService.abort()
+        selectionUnavailable = true
         result.text = message
-        statusBusy = false
-        statusText = "Selection unavailable"
     }
 
     // TODO(phase-2c): expose a mode selector in the UI; the ExplainWord and
@@ -66,7 +76,6 @@ Item {
         mainWindow.flags = mainWindow.flags | Qt.WindowStaysOnTopHint
         tItem.state = "yes"
         pinned = true
-        statusText = "Ready"
     }
 
     AppBackground {
@@ -330,6 +339,7 @@ Item {
         text:(Qt.platform.os == "macos" || Qt.platform.os == "osx")?"Translate ⌘Enter":"Translate (Ctrl+Enter)"
         font.capitalization: Font.MixedCase
         enabled:inputArea.text.length > 0
+        visible: !translationService.isRequesting
         onClicked: {
             root.startTrans()
         }
@@ -368,7 +378,7 @@ Item {
     }
     Button{
         id:stopBtn
-        visible:false
+        visible: translationService.isRequesting
         z:2
         anchors.bottom: parent.bottom
         anchors.right:parent.right
@@ -513,8 +523,8 @@ Item {
         id:translationService
         onTranslationStarted: {
             result.text = ""
-            root.statusBusy = true
-            root.statusText = "Translating..."
+            root.stopped = false
+            root.selectionUnavailable = false
         }
         onResponseDataChanged: {
             if (responseError === "") {
@@ -524,26 +534,11 @@ Item {
         onResponseErrorChanged: {
             if (responseError !== "") {
                 result.text = responseError
-                root.statusBusy = false
-                root.statusText = "Error"
-            }
-        }
-        onIsRequestingChanged: {
-            if(isRequesting){
-                root.statusBusy = true
-                root.statusText = "Translating..."
-                transBtn.visible = false
-                stopBtn.visible = true
-            }else{
-                root.statusBusy = false
-                root.statusText = responseError !== "" ? "Error" : "Ready"
-                transBtn.visible = true
-                stopBtn.visible = false
             }
         }
         onTranslationStopped: {
             // Keep the partial result visible, but distinguish it from Ready.
-            root.statusText = "Stopped"
+            root.stopped = true
         }
     }
 }

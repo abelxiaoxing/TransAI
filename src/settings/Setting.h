@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QString>
 
+#include "providers/ProviderDefaults.h"
 #include "stdafx.h"
 
 class Setting : public QObject
@@ -25,6 +26,12 @@ class Setting : public QObject
     Q_PROPERTY(QString model READ model NOTIFY modelChanged)
     Q_PROPERTY(QString provider READ provider NOTIFY providerChanged)
 
+    // Provider defaults exposed to QML (settings page) so the UI never
+    // hardcodes URLs or model names in parallel with the C++ side.
+    Q_PROPERTY(QString defaultOpenAiApiServer READ defaultOpenAiApiServer CONSTANT)
+    Q_PROPERTY(QString defaultOllamaApiServer READ defaultOllamaApiServer CONSTANT)
+    Q_PROPERTY(QString defaultOpenAiModel READ defaultOpenAiModel CONSTANT)
+
 public:
     explicit Setting(QObject* parent = nullptr);
 
@@ -32,6 +39,17 @@ public:
     QString apiKey() const { return _apiKey; }
     QString model() const { return _model; }
     QString provider() const { return _provider; }
+
+    QString defaultOpenAiApiServer() const { return ProviderDefaults::openAiApiServer(); }
+    QString defaultOllamaApiServer() const { return ProviderDefaults::ollamaApiServer(); }
+    QString defaultOpenAiModel() const { return ProviderDefaults::openAiDefaultModel(); }
+
+    // Shared plausibility check for API keys (mirrors the server-side check
+    // in TranslationService/ModelDiscoveryService, for use before calls).
+    Q_INVOKABLE bool hasPlausibleApiKey(const QString& apiKey) const
+    {
+        return ProviderDefaults::isPlausibleApiKey(apiKey);
+    }
 
     Q_INVOKABLE bool loadConfig();
     Q_INVOKABLE void updateConfig();

@@ -8,7 +8,7 @@ Item {
 
     property bool ready: false
     property string selectedProvider: "openai"
-    property string selectedModel: "gpt-3.5-turbo"
+    property string selectedModel: defaultOpenAiModel
     property bool openModelPopupAfterDetect: false
     property string autoDetectServer: ""
     property string autoDetectKey: ""
@@ -17,12 +17,13 @@ Item {
     property bool shortcutRecordingAccepted: false
     property QtObject shortcutRegistrar: null
     readonly property bool isOllamaProvider: selectedProvider === "ollama"
-    readonly property string defaultOllamaApiServer: "http://localhost:11434"
-    readonly property string defaultOpenAiApiServer: "https://api.openai.com"
+    // Defaults live in ProviderDefaults (C++); Setting re-exposes them so the
+    // UI never hardcodes URLs or model names in parallel.
+    readonly property string defaultOllamaApiServer: setting.defaultOllamaApiServer
+    readonly property string defaultOpenAiApiServer: setting.defaultOpenAiApiServer
+    readonly property string defaultOpenAiModel: setting.defaultOpenAiModel
 
     // 主题颜色（统一来自 ThemeColors 单例；字号/圆角保留本页自己的尺度）
-    readonly property color backgroundColor: ThemeColors.background
-    readonly property color backgroundSecondary: ThemeColors.backgroundSecondary
     readonly property color panelColor: ThemeColors.panelColor
     readonly property color panelColorAlt: ThemeColors.panelColorAlt
     readonly property color fieldColor: ThemeColors.fieldColor
@@ -35,7 +36,6 @@ Item {
     readonly property color border: ThemeColors.border
     readonly property color borderActive: ThemeColors.borderActive
     readonly property color error: ThemeColors.error
-    readonly property color success: ThemeColors.success
     readonly property int fontSizeSmall: 16
     readonly property int fontSizeNormal: 20
     readonly property int fontSizeLarge: 22
@@ -78,7 +78,7 @@ Item {
         } else {
             serverInput.text = setting.openaiApiServer.trim().length > 0 ? setting.openaiApiServer : defaultOpenAiApiServer
             keyInput.text = setting.openaiApiKey
-            selectedModel = setting.openaiModel.trim().length > 0 ? setting.openaiModel : "gpt-3.5-turbo"
+            selectedModel = setting.openaiModel.trim().length > 0 ? setting.openaiModel : defaultOpenAiModel
         }
         setting.applyProviderConfig(selectedProvider)
     }
@@ -88,7 +88,7 @@ Item {
         if (selectedProvider === "ollama") {
             setting.ollamaModel = model
         } else {
-            setting.openaiModel = model.length > 0 ? model : "gpt-3.5-turbo"
+            setting.openaiModel = model.length > 0 ? model : defaultOpenAiModel
         }
     }
 
@@ -102,14 +102,14 @@ Item {
         shortcutText.text = setting.shortCut
         selectedModel = isOllamaProvider ? setting.ollamaModel : setting.openaiModel
         if (selectedModel.trim().length === 0 && !isOllamaProvider) {
-            selectedModel = "gpt-3.5-turbo"
+            selectedModel = defaultOpenAiModel
         }
         openModelPopupAfterDetect = false
         modelPopup.close()
 
         ready = true
         Qt.callLater(function() {
-            if (selectedProvider === "ollama" || keyInput.text.trim().length >= 10) {
+            if (selectedProvider === "ollama" || setting.hasPlausibleApiKey(keyInput.text)) {
                 detectModels()
             }
         })
@@ -126,7 +126,7 @@ Item {
             const server = serverInput.text.trim().length > 0 ? serverInput.text.trim() : defaultOpenAiApiServer
             setting.openaiApiServer = server
             setting.openaiApiKey = keyInput.text
-            setting.openaiModel = selectedModel.trim().length > 0 ? selectedModel.trim() : "gpt-3.5-turbo"
+            setting.openaiModel = selectedModel.trim().length > 0 ? selectedModel.trim() : defaultOpenAiModel
         }
         setting.shortCut = shortcutText.text
         setting.applyProviderConfig(selectedProvider)
@@ -142,6 +142,14 @@ Item {
         saveDebounceTimer.restart()
     }
 
+    // Writes pending debounced edits immediately. Must run BEFORE the
+    // provider fields are swapped (provider switch, window close), otherwise
+    // the pending edits of the outgoing provider would be dropped silently.
+    function flushPendingSave() {
+        saveDebounceTimer.stop()
+        saveConfig()
+    }
+
     function detectModels() {
         modelDetector.detectModels(isOllamaProvider ? (serverInput.text.trim().length > 0 ? serverInput.text.trim() : defaultOllamaApiServer) : serverInput.text.trim(), keyInput.text, selectedProvider)
     }
@@ -152,7 +160,7 @@ Item {
         }
         const server = isOllamaProvider ? (serverInput.text.trim().length > 0 ? serverInput.text.trim() : defaultOllamaApiServer) : normalizedApiServer()
         const key = isOllamaProvider ? "" : keyInput.text.trim()
-        if (!isOllamaProvider && key.length < 10) {
+        if (!isOllamaProvider && !setting.hasPlausibleApiKey(key)) {
             return
         }
         if (autoDetectProvider === selectedProvider && autoDetectServer === server && autoDetectKey === key) {
@@ -321,8 +329,10 @@ Item {
                             if (!ready) {
                                 return
                             }
-                            // Suppress the text-input autosave while the
-                            // provider's fields are being swapped in.
+                            // Persist the outgoing provider's pending edits
+                            // while its fields are still in the inputs, then
+                            // swap in the new provider's values.
+                            flushPendingSave()
                             persistCurrentModel()
                             ready = false
                             selectedProvider = providerFromIndex(currentIndex)
@@ -535,7 +545,7 @@ Item {
                     ThemedComboBox {
                         id: thinkingCombo
                         width: parent.width - thinkingLabel.width - 10
-                        model: ["Auto (detect by model)", "Qwen 3.8 / 3.6 / 3.5", "DeepSeek", "OpenAI o-series", "Ollama", "Manual (none)"]
+                        model: ["Auto (detect by model)", "Qwen3 (thinking)", "DeepSeek", "OpenAI o-series", "Ollama", "Manual (none)"]
                         currentIndex: thinkingIndex(setting.thinkingMode)
 
                         onActivated: {
@@ -550,7 +560,7 @@ Item {
                 Text {
                     width: parent.width
                     leftPadding: thinkingLabel.width + 10
-                    text: "Auto detects the model family from its name. If your model id is a relay alias (e.g. LocalModel on NewAPI), pick the family of the real model — e.g. Qwen 3.8 sends enable_thinking=false + reasoning_effort=low to skip xhigh thinking."
+                    text: "Auto detects the model family from its name. If your model id is a relay alias (e.g. LocalModel on NewAPI), pick the family of the real model — Qwen3 thinking models are sent enable_thinking=false plus the /no_think tag so answers come without reasoning steps."
                     color: subtleForeground
                     font.pixelSize: 15
                     wrapMode: Text.WordWrap
@@ -785,7 +795,7 @@ Item {
         interval: 700
         repeat: false
         onTriggered: {
-            if (!isOllamaProvider && keyInput.text.trim().length < 10) {
+            if (!isOllamaProvider && !setting.hasPlausibleApiKey(keyInput.text.trim())) {
                 return
             }
             if (autoDetectProvider !== selectedProvider) {

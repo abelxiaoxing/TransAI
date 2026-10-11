@@ -41,11 +41,6 @@ QStringList existingConfigCandidates()
             candidates << QDir(baseDir).filePath(kConfigFileName);
         }
     }
-
-    const QString located = QStandardPaths::locate(QStandardPaths::AppConfigLocation, kConfigFileName, QStandardPaths::LocateFile);
-    if (!located.isEmpty()) {
-        candidates.prepend(located);
-    }
     return candidates;
 }
 
@@ -88,7 +83,7 @@ Setting::Setting(QObject* parent)
 {
     _openaiApiServer = ProviderDefaults::openAiApiServer();
     _openaiApiKey = "";
-    _openaiModel = "gpt-3.5-turbo";
+    _openaiModel = ProviderDefaults::openAiDefaultModel();
     _ollamaApiServer = ProviderDefaults::ollamaApiServer();
     _ollamaModel = "";
     _shortCut = "";
@@ -149,13 +144,16 @@ bool Setting::loadConfig()
         _provider = "openai";
     }
 
-    _openaiApiServer = obj.value(kOpenAIApiServerKey).toString();
-    if (_openaiApiServer.trimmed().isEmpty() && obj.contains(kOpenAIApiServerKey)) {
-        _openaiApiServer = "";
-    } else if (_openaiApiServer.trimmed().isEmpty()) {
-        _openaiApiServer = _provider == "openai"
-            ? (legacyApiServer.trimmed().isEmpty() ? ProviderDefaults::openAiApiServer() : legacyApiServer.trimmed())
+    // "Key present but empty" is preserved as empty (the derived active view
+    // falls back to the default); "key absent" migrates from the legacy
+    // top-level keys or falls back to the default.
+    const QString storedOpenAiServer = obj.value(kOpenAIApiServerKey).toString();
+    if (storedOpenAiServer.trimmed().isEmpty() && !obj.contains(kOpenAIApiServerKey)) {
+        _openaiApiServer = _provider == "openai" && !legacyApiServer.trimmed().isEmpty()
+            ? legacyApiServer.trimmed()
             : ProviderDefaults::openAiApiServer();
+    } else {
+        _openaiApiServer = storedOpenAiServer;
     }
 
     _openaiApiKey = obj.value(kOpenAIApiKeyKey).toString();
@@ -165,9 +163,9 @@ bool Setting::loadConfig()
 
     _openaiModel = obj.value(kOpenAIModelKey).toString();
     if (_openaiModel.trimmed().isEmpty() && !obj.contains(kOpenAIModelKey)) {
-        _openaiModel = _provider == "openai"
-            ? (legacyModel.trimmed().isEmpty() ? "gpt-3.5-turbo" : legacyModel.trimmed())
-            : "gpt-3.5-turbo";
+        _openaiModel = _provider == "openai" && !legacyModel.trimmed().isEmpty()
+            ? legacyModel.trimmed()
+            : ProviderDefaults::openAiDefaultModel();
     }
 
     _ollamaApiServer = obj.value(kOllamaApiServerKey).toString();
@@ -208,7 +206,7 @@ void Setting::applyActiveProviderConfig()
     const QString nextApiKey = _openaiApiKey;
     const QString nextModel = _provider == "ollama"
         ? _ollamaModel
-        : (_openaiModel.trimmed().isEmpty() ? "gpt-3.5-turbo" : _openaiModel);
+        : (_openaiModel.trimmed().isEmpty() ? ProviderDefaults::openAiDefaultModel() : _openaiModel);
 
     if (_apiServer != nextApiServer) {
         _apiServer = nextApiServer;

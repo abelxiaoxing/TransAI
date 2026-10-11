@@ -200,6 +200,11 @@ Window {
         }
     }
 
+    onClosing: {
+        // Persist debounced-but-unwritten settings edits before quitting.
+        settingView.flushPendingSave()
+    }
+
     onActiveChanged: {
         if(active){
             closeWindowAnimation.stop()
