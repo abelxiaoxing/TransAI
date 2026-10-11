@@ -185,7 +185,17 @@ void TranslationService::translate(const TranslationRequest& request)
             } else {
                 emit translationFailed(m_responseError);
             }
-        } else if (currentReply->error() != QNetworkReply::OperationCanceledError) {
+        } else if (currentReply->error() == QNetworkReply::OperationCanceledError) {
+            // abort() disconnects the reply before cancelling it, so a canceled
+            // reply that still reaches finished can only be the 30s transfer
+            // timeout. Report it instead of leaving the UI without a terminal
+            // signal (the reply would otherwise end in a silent "Ready").
+            const QString timeoutError = m_responseError.isEmpty()
+                ? QStringLiteral("Translation timed out: no data from the server")
+                : m_responseError;
+            setResponseError(timeoutError);
+            emit translationFailed(timeoutError);
+        } else {
             const QString error = m_responseError.isEmpty()
                 ? networkErrorMessage(currentReply->error())
                 : m_responseError;
