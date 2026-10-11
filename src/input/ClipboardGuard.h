@@ -14,7 +14,7 @@ public:
 
     QString originalText() const;
     QString currentText() const;
-    bool restore() const;
+    void restore() const;
 
 private:
     bool m_hadMimeData = false;

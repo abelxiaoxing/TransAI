@@ -17,19 +17,6 @@
 
 int main(int argc, char *argv[])
 {
-
-    #ifdef Q_OS_WIN
-       qDebug() << "Current OS: Windows";
-    #endif
-
-    #ifdef Q_OS_MACOS
-       qDebug() << "Current OS: macOS";
-    #endif
-
-    #ifdef Q_OS_LINUX
-       qDebug() << "Current OS: Linux";
-    #endif
-
     #ifdef Q_OS_LINUX
         // Software rendering works around GPU pipeline failures on some Linux
         // systems. Users can still override by exporting QT_QUICK_BACKEND

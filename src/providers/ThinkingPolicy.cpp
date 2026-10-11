@@ -79,6 +79,20 @@ void applyQwenPolicy(ThinkingPolicy& policy, bool newGeneration)
 
 } // namespace
 
+QString ThinkingPolicyBuilder::normalizeThinkingMode(const QString& mode)
+{
+    const QString normalized = mode.trimmed().toLower();
+    if (normalized == QLatin1String("qwen") || normalized == QLatin1String("deepseek")
+        || normalized == QLatin1String("openai") || normalized == QLatin1String("ollama")
+        || normalized == QLatin1String("manual")) {
+        return normalized;
+    }
+    if (normalized == QLatin1String("none")) {
+        return QLatin1String("manual");
+    }
+    return QLatin1String("auto");
+}
+
 ThinkingPolicy ThinkingPolicyBuilder::build(const QString& provider, const QString& apiServer, const QString& model, const QString& mode)
 {
     ThinkingPolicy policy;

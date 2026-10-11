@@ -1,7 +1,6 @@
 #include "input/ClipboardGuard.h"
 
 #include <QClipboard>
-#include <QDebug>
 #include <QGuiApplication>
 #include <QMimeData>
 
@@ -30,15 +29,15 @@ QString ClipboardGuard::currentText() const
     return clipboard ? clipboard->text() : QString();
 }
 
-bool ClipboardGuard::restore() const
+void ClipboardGuard::restore() const
 {
     QClipboard* clipboard = QGuiApplication::clipboard();
     if (!clipboard) {
-        return false;
+        return;
     }
     if (!m_hadMimeData) {
         clipboard->clear();
-        return clipboard->mimeData() == nullptr || clipboard->mimeData()->formats().isEmpty();
+        return;
     }
 
     QMimeData* restoredMimeData = new QMimeData();
@@ -48,12 +47,7 @@ bool ClipboardGuard::restore() const
     if (m_originalMimeData.isEmpty() && !m_originalText.isEmpty()) {
         restoredMimeData->setText(m_originalText);
     }
+    // Restoration is best-effort: clipboard updates are delivered
+    // asynchronously by the platform and cannot be verified synchronously.
     clipboard->setMimeData(restoredMimeData);
-    // Verification is best-effort only: clipboard updates are delivered
-    // asynchronously by the platform, so the check may fail spuriously.
-    const bool restored = clipboard->text() == m_originalText;
-    if (!restored) {
-        qWarning() << "Clipboard restore could not be verified synchronously";
-    }
-    return restored;
 }

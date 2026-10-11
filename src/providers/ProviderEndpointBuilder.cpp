@@ -1,19 +1,11 @@
 #include "providers/ProviderEndpointBuilder.h"
 
-namespace {
-const char kDefaultOpenAIApiServer[] = "https://api.openai.com";
-const char kDefaultOllamaApiServer[] = "http://localhost:11434";
-
-QString normalizeProvider(const QString& provider)
-{
-    return provider.trimmed().toLower() == "ollama" ? "ollama" : "openai";
-}
-}
+#include "providers/ProviderDefaults.h"
 
 QUrl ProviderEndpointBuilder::buildChatCompletionUrl(const QString& apiServer, const QString& provider) const
 {
-    const QString normalizedProvider = normalizeProvider(provider);
-    const QString defaultServer = normalizedProvider == "ollama" ? kDefaultOllamaApiServer : kDefaultOpenAIApiServer;
+    const QString normalizedProvider = ProviderDefaults::normalizedProviderName(provider);
+    const QString defaultServer = ProviderDefaults::defaultApiServerForProvider(normalizedProvider);
     QUrl url(apiServer.trimmed().isEmpty() ? defaultServer : apiServer.trimmed());
     QString path = url.path().trimmed();
 
@@ -61,8 +53,8 @@ QUrl ProviderEndpointBuilder::buildChatCompletionUrl(const QString& apiServer, c
 
 QUrl ProviderEndpointBuilder::buildModelListUrl(const QString& apiServer, const QString& provider) const
 {
-    if (normalizeProvider(provider) == "ollama") {
-        QUrl url(apiServer.trimmed().isEmpty() ? kDefaultOllamaApiServer : apiServer.trimmed());
+    if (ProviderDefaults::normalizedProviderName(provider) == QLatin1String("ollama")) {
+        QUrl url(apiServer.trimmed().isEmpty() ? ProviderDefaults::ollamaApiServer() : apiServer.trimmed());
         QString path = url.path();
         if (path.isEmpty() || path == "/" || path == "/v1") {
             path = "/api/tags";
@@ -83,7 +75,7 @@ QUrl ProviderEndpointBuilder::buildModelListUrl(const QString& apiServer, const 
         return url;
     }
 
-    QUrl url(apiServer.trimmed().isEmpty() ? kDefaultOpenAIApiServer : apiServer.trimmed());
+    QUrl url(apiServer.trimmed().isEmpty() ? ProviderDefaults::openAiApiServer() : apiServer.trimmed());
     QString path = url.path();
     if (path.endsWith("/chat/completions")) {
         path = path.left(path.length() - QString("/chat/completions").length());

@@ -39,9 +39,8 @@ struct ThinkingPolicy
 class ThinkingPolicyBuilder
 {
 public:
-    // Builds the thinking-suppression policy for one translation request.
-    //
-    // mode:
+    // Canonical thinking modes (the only accepted values, see
+    // normalizeThinkingMode):
     //   "auto"    - detect the model family from the model id (recommended, default)
     //   "qwen"    - force Qwen 3.8/3.6/3.5 controls (enable_thinking=false +
     //               reasoning_effort=low + /no_think)
@@ -53,6 +52,11 @@ public:
     // Forced profiles are useful when the model id is a relay alias (e.g.
     // "LocalModel" on a NewAPI gateway) that hides the real model family.
     static ThinkingPolicy build(const QString& provider, const QString& apiServer, const QString& model, const QString& mode);
+
+    // Single validation point for the thinking-mode string crossing the
+    // config file / QVariantMap boundaries. Maps "none" to "manual" and
+    // empty or unknown values to "auto".
+    static QString normalizeThinkingMode(const QString& mode);
 };
 
 #endif // THINKING_POLICY_H

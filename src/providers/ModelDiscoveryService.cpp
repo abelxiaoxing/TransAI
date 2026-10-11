@@ -7,6 +7,7 @@
 #include <QJsonParseError>
 #include <QNetworkRequest>
 
+#include "providers/ProviderDefaults.h"
 #include "providers/ProviderEndpointBuilder.h"
 
 ModelDiscoveryService::ModelDiscoveryService(QObject* parent)
@@ -37,13 +38,13 @@ void ModelDiscoveryService::detectModels(QString apiServer, QString apiKey, QStr
 {
     cancelCurrentRequest();
 
-    const QString normalizedProvider = provider == "ollama" ? "ollama" : "openai";
+    const QString normalizedProvider = ProviderDefaults::normalizedProviderName(provider);
     setError("");
     setAvailableModels(QStringList());
 
-    if (normalizedProvider != "ollama" && apiKey.trimmed().length() < 10) {
+    if (normalizedProvider != "ollama" && !ProviderDefaults::isPlausibleApiKey(apiKey)) {
         setIsDetecting(false);
-        setError("Please provide the correct apikey");
+        setError(ProviderDefaults::apiKeyErrorMessage());
         return;
     }
 

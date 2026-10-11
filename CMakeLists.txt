@@ -16,8 +16,11 @@ add_compile_definitions(APP_VERSION="${APP_VERSION}")
 
 message(STATUS "APP_VERSION: ${APP_VERSION}")
 
-if (CMAKE_SYSTEM_NAME MATCHES "Linux")
-    # 自动检测系统 Qt6 路径
+if (CMAKE_SYSTEM_NAME MATCHES "Linux"
+    AND NOT DEFINED Qt6_DIR AND NOT DEFINED CMAKE_PREFIX_PATH)
+    # Auto-detect a system Qt6 via qmake. Explicitly passed -DQt6_DIR or
+    # -DCMAKE_PREFIX_PATH always win; if neither is given and qmake has no
+    # Qt6, find_package below fails with a hint to pass one of them.
     execute_process(
         COMMAND qmake -query QT_INSTALL_PREFIX
         OUTPUT_VARIABLE SYSTEM_QT_PREFIX
@@ -26,9 +29,6 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
     if(EXISTS "${SYSTEM_QT_PREFIX}/lib/cmake/Qt6")
         set(Qt6_DIR "${SYSTEM_QT_PREFIX}/lib/cmake/Qt6")
         message(STATUS "Using system Qt6: ${SYSTEM_QT_PREFIX}")
-    else()
-        set(Qt6_DIR "$ENV{HOME}/Qt/6.9.2/gcc_64/lib/cmake/Qt6")
-        message(STATUS "Using local Qt6: ${Qt6_DIR}")
     endif()
 endif()
 find_package(Qt6 REQUIRED COMPONENTS Quick Network)
@@ -45,11 +45,10 @@ set(HEADERS
     src/translation/PromptBuilder.h
     src/translation/StreamParser.h
     src/translation/TranslationService.h
+    src/providers/ProviderDefaults.h
     src/providers/ProviderEndpointBuilder.h
     src/providers/ModelDiscoveryService.h
     src/providers/ThinkingPolicy.h
-    src/input/ShortcutBackend.h
-    src/input/QHotkeyShortcutBackend.h
     src/input/GlobalShortcutManager.h
     src/input/ClipboardGuard.h
     src/input/SelectionTextProvider.h
@@ -65,7 +64,6 @@ set(SOURCES
     src/providers/ProviderEndpointBuilder.cpp
     src/providers/ModelDiscoveryService.cpp
     src/providers/ThinkingPolicy.cpp
-    src/input/QHotkeyShortcutBackend.cpp
     src/input/GlobalShortcutManager.cpp
     src/input/ClipboardGuard.cpp
     src/input/SelectionTextProvider.cpp
@@ -124,7 +122,7 @@ set_target_properties(TransAI PROPERTIES
     MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}
 )
 
-include_directories("src")
+target_include_directories(TransAI PRIVATE "src")
 
 
 IF (CMAKE_SYSTEM_NAME MATCHES "Windows")
