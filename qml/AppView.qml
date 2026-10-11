@@ -1,10 +1,6 @@
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Layouts
 import TransAI
-
-
-import QtQuick.Controls.Material
 import "."
 
 Item {
@@ -22,16 +18,12 @@ Item {
     readonly property color foreground: ThemeColors.foreground
     readonly property color accent: ThemeColors.accent
     readonly property color accentHover: ThemeColors.accentHover
-    readonly property color accentPurple: ThemeColors.accentPurple
     readonly property color border: ThemeColors.border
     readonly property color borderActive: ThemeColors.borderActive
-    readonly property color backgroundSecondary: ThemeColors.backgroundSecondary
     readonly property color panelColor: ThemeColors.panelColor
     readonly property color panelColorAlt: ThemeColors.panelColorAlt
     readonly property color fieldColor: ThemeColors.fieldColor
     readonly property color error: ThemeColors.error
-    readonly property color success: ThemeColors.success
-    readonly property color warning: ThemeColors.warning
     readonly property color infoBg: ThemeColors.infoBg
     readonly property color warningBg: ThemeColors.warningBg
     readonly property color infoText: ThemeColors.infoText
@@ -40,7 +32,7 @@ Item {
     readonly property int fontSizeNormal: 16
     readonly property int fontSizeLarge: 18
     readonly property real radius: 8
-    function startTrans(source){
+    function startTrans(){
         if (inputArea.text.length === 0) {
             return
         }
@@ -48,7 +40,6 @@ Item {
             "text": inputArea.text,
             "targetLanguage": langSelector.currentText,
             "mode": getMode(),
-            "source": source || "manual",
             "provider": setting.provider,
             "apiServer": setting.apiServer,
             "apiKey": setting.apiKey,
@@ -64,6 +55,8 @@ Item {
         statusText = "Selection unavailable"
     }
 
+    // TODO(phase-2c): expose a mode selector in the UI; the ExplainWord and
+    // CorrectGrammar prompts already exist in PromptBuilder.
     function getMode(){
         return 0
     }
@@ -76,42 +69,8 @@ Item {
         statusText = "Ready"
     }
 
-    Rectangle {
-        id:appBackground
-        anchors.fill: parent
-        z:0
-        color: backgroundColor
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: ThemeColors.gradientTop }
-            GradientStop { position: 0.52; color: backgroundColor }
-            GradientStop { position: 1.0; color: ThemeColors.gradientBottom }
-        }
-    }
-
-    Rectangle {
-        z:1
-        width: 260
-        height: 260
-        radius: 130
-        x: -120
-        y: -90
-        color: Qt.rgba(0.39, 0.96, 0.84, 0.12)
-        border.color: Qt.rgba(0.39, 0.96, 0.84, 0.18)
-        border.width: 1
-    }
-
-    Rectangle {
-        z:1
-        width: 220
-        height: 220
-        radius: 110
-        anchors.right: parent.right
-        anchors.rightMargin: -110
-        anchors.top: parent.top
-        anchors.topMargin: 110
-        color: Qt.rgba(0.49, 0.36, 1.0, 0.10)
-        border.color: Qt.rgba(0.49, 0.36, 1.0, 0.16)
-        border.width: 1
+    AppBackground {
+        // Defaults match the previous hand-rolled layout.
     }
 
     Item{
@@ -372,7 +331,7 @@ Item {
         font.capitalization: Font.MixedCase
         enabled:inputArea.text.length > 0
         onClicked: {
-            root.startTrans("manual")
+            root.startTrans()
         }
         height:50
         background: Rectangle {
@@ -456,9 +415,6 @@ Item {
         opacity: 1
         currentIndex: 0
         model:["简体中文","繁体中文", "English", "Japanese", "German", "Korean", "Español", "français"]
-        onCurrentTextChanged: {
-            // TranslationService receives targetLanguage per request.
-        }
         height:40
 
         // 应用主题样式

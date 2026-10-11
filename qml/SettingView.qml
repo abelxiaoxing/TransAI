@@ -6,13 +6,10 @@ Item {
     id: root
     signal backClicked
 
-    property bool lock: true
-    property bool configLoaded: false
+    property bool ready: false
     property string selectedProvider: "openai"
     property string selectedModel: "gpt-3.5-turbo"
-    property string thinkingMode: "auto"
     property bool openModelPopupAfterDetect: false
-    property bool switchingProvider: false
     property string autoDetectServer: ""
     property string autoDetectKey: ""
     property string autoDetectProvider: ""
@@ -20,7 +17,8 @@ Item {
     property bool shortcutRecordingAccepted: false
     property QtObject shortcutRegistrar: null
     readonly property bool isOllamaProvider: selectedProvider === "ollama"
-    readonly property string ollamaApiServer: "http://localhost:11434"
+    readonly property string defaultOllamaApiServer: "http://localhost:11434"
+    readonly property string defaultOpenAiApiServer: "https://api.openai.com"
 
     // 主题颜色（统一来自 ThemeColors 单例；字号/圆角保留本页自己的尺度）
     readonly property color backgroundColor: ThemeColors.background
@@ -65,7 +63,7 @@ Item {
     }
 
     function normalizedApiServer() {
-        return serverInput.text.trim().length > 0 ? serverInput.text.trim() : "https://api.openai.com"
+        return serverInput.text.trim().length > 0 ? serverInput.text.trim() : defaultOpenAiApiServer
     }
 
     function applyProviderSettings(provider) {
@@ -75,10 +73,10 @@ Item {
         modelPopup.close()
 
         if (isOllama) {
-            serverInput.text = setting.ollamaApiServer.trim().length > 0 ? setting.ollamaApiServer : ollamaApiServer
+            serverInput.text = setting.ollamaApiServer.trim().length > 0 ? setting.ollamaApiServer : defaultOllamaApiServer
             selectedModel = setting.ollamaModel.trim().length > 0 ? setting.ollamaModel : ""
         } else {
-            serverInput.text = setting.openaiApiServer.trim().length > 0 ? setting.openaiApiServer : "https://api.openai.com"
+            serverInput.text = setting.openaiApiServer.trim().length > 0 ? setting.openaiApiServer : defaultOpenAiApiServer
             keyInput.text = setting.openaiApiKey
             selectedModel = setting.openaiModel.trim().length > 0 ? setting.openaiModel : "gpt-3.5-turbo"
         }
@@ -95,14 +93,13 @@ Item {
     }
 
     function reload() {
-        lock = true
+        ready = false
         setting.loadConfig()
         selectedProvider = setting.provider === "ollama" ? "ollama" : "openai"
         providerCombo.currentIndex = providerIndex(selectedProvider)
         applyProviderSettings(selectedProvider)
         keyInput.text = setting.openaiApiKey
         shortcutText.text = setting.shortCut
-        thinkingMode = thinkingIndex(setting.thinkingMode) >= 0 ? setting.thinkingMode : "auto"
         selectedModel = isOllamaProvider ? setting.ollamaModel : setting.openaiModel
         if (selectedModel.trim().length === 0 && !isOllamaProvider) {
             selectedModel = "gpt-3.5-turbo"
@@ -110,8 +107,7 @@ Item {
         openModelPopupAfterDetect = false
         modelPopup.close()
 
-        configLoaded = true
-        lock = false
+        ready = true
         Qt.callLater(function() {
             if (selectedProvider === "ollama" || keyInput.text.trim().length >= 10) {
                 detectModels()
@@ -120,20 +116,19 @@ Item {
     }
 
     function saveConfig() {
-        if (lock || !configLoaded) {
+        if (!ready) {
             return
         }
         if (isOllamaProvider) {
-            setting.ollamaApiServer = serverInput.text.trim().length > 0 ? serverInput.text.trim() : ollamaApiServer
+            setting.ollamaApiServer = serverInput.text.trim().length > 0 ? serverInput.text.trim() : defaultOllamaApiServer
             setting.ollamaModel = selectedModel.trim()
         } else {
-            const server = serverInput.text.trim().length > 0 ? serverInput.text.trim() : "https://api.openai.com"
+            const server = serverInput.text.trim().length > 0 ? serverInput.text.trim() : defaultOpenAiApiServer
             setting.openaiApiServer = server
             setting.openaiApiKey = keyInput.text
             setting.openaiModel = selectedModel.trim().length > 0 ? selectedModel.trim() : "gpt-3.5-turbo"
         }
         setting.shortCut = shortcutText.text
-        setting.thinkingMode = thinkingMode
         setting.applyProviderConfig(selectedProvider)
         setting.updateConfig()
     }
@@ -141,21 +136,21 @@ Item {
     // Debounced save for text inputs: writes at most once per pause in typing
     // instead of once per keystroke.
     function saveConfigSoon() {
-        if (lock || !configLoaded) {
+        if (!ready) {
             return
         }
         saveDebounceTimer.restart()
     }
 
     function detectModels() {
-        modelDetector.detectModels(isOllamaProvider ? (serverInput.text.trim().length > 0 ? serverInput.text.trim() : ollamaApiServer) : serverInput.text.trim(), keyInput.text, selectedProvider)
+        modelDetector.detectModels(isOllamaProvider ? (serverInput.text.trim().length > 0 ? serverInput.text.trim() : defaultOllamaApiServer) : serverInput.text.trim(), keyInput.text, selectedProvider)
     }
 
     function queueAutoDetectModels() {
-        if (lock || !configLoaded) {
+        if (!ready) {
             return
         }
-        const server = isOllamaProvider ? (serverInput.text.trim().length > 0 ? serverInput.text.trim() : ollamaApiServer) : normalizedApiServer()
+        const server = isOllamaProvider ? (serverInput.text.trim().length > 0 ? serverInput.text.trim() : defaultOllamaApiServer) : normalizedApiServer()
         const key = isOllamaProvider ? "" : keyInput.text.trim()
         if (!isOllamaProvider && key.length < 10) {
             return
@@ -220,39 +215,8 @@ Item {
         return parts.length > 0 ? parts.join("+") + "+" + keyName : keyName
     }
 
-    Rectangle {
-        anchors.fill: parent
-        color: backgroundColor
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: ThemeColors.gradientTop }
-            GradientStop { position: 0.52; color: backgroundColor }
-            GradientStop { position: 1.0; color: ThemeColors.gradientBottom }
-        }
-    }
-
-    // Subtle neon ambience without expensive shader effects.
-    Rectangle {
-        width: 260
-        height: 260
-        radius: 130
-        x: -120
-        y: -90
-        color: Qt.rgba(0.39, 0.96, 0.84, 0.12)
-        border.color: Qt.rgba(0.39, 0.96, 0.84, 0.18)
-        border.width: 1
-    }
-
-    Rectangle {
-        width: 220
-        height: 220
-        radius: 110
-        anchors.right: parent.right
-        anchors.rightMargin: -110
-        anchors.top: parent.top
-        anchors.topMargin: 90
-        color: Qt.rgba(0.49, 0.36, 1.0, 0.10)
-        border.color: Qt.rgba(0.49, 0.36, 1.0, 0.16)
-        border.width: 1
+    AppBackground {
+        accentCircleTopMargin: 90
     }
 
     MouseArea {
@@ -328,7 +292,7 @@ Item {
 
                         StatusPill {
                             label: selectedModel.length > 0 ? selectedModel : "NO MODEL"
-                            dotColor: modelDetector.modelDetectError !== "" ? error : accent
+                            dotColor: modelDetector.error !== "" ? root.error : accent
                             width: Math.min(190, implicitWidth)
                         }
                     }
@@ -347,94 +311,25 @@ Item {
                         title: "Provider"
                     }
 
-                    ComboBox {
+                    ThemedComboBox {
                         id: providerCombo
                         width: parent.width - providerLabel.width - 10
-                        height: 44
                         model: ["OpenAI", "Ollama"]
                         currentIndex: 0
-                        font.pixelSize: fontSizeNormal
-                        hoverEnabled: true
 
                         onCurrentIndexChanged: {
-                            if (!lock) {
-                                persistCurrentModel()
-                                switchingProvider = true
-                                selectedProvider = providerFromIndex(currentIndex)
-                                applyProviderSettings(selectedProvider)
-                                saveConfig()
-                                switchingProvider = false
-                                queueAutoDetectModels()
+                            if (!ready) {
+                                return
                             }
-                        }
-
-                        background: Rectangle {
-                            color: providerCombo.hovered || providerCombo.popup.opened ? "#152332" : fieldColor
-                            radius: root.radius
-                            border.width: 1
-                            border.color: providerCombo.popup.opened ? borderActive : (providerCombo.hovered ? Qt.rgba(0.39, 0.96, 0.84, 0.55) : border)
-                            Behavior on color { ColorAnimation { duration: 160 } }
-                        }
-
-                        contentItem: Text {
-                            text: providerCombo.displayText
-                            color: foreground
-                            font.pixelSize: fontSizeNormal
-                            verticalAlignment: Text.AlignVCenter
-                            elide: Text.ElideRight
-                            leftPadding: 14
-                            rightPadding: 40
-                        }
-
-                        indicator: Text {
-                            x: providerCombo.width - width - 14
-                            y: (providerCombo.height - height) / 2
-                            text: providerCombo.popup.opened ? "▴" : "▾"
-                            color: providerCombo.hovered || providerCombo.popup.opened ? accentHover : mutedForeground
-                            font.pixelSize: 16
-                        }
-
-                        delegate: ItemDelegate {
-                            width: providerCombo.width
-                            height: 38
-                            highlighted: providerCombo.highlightedIndex === index
-
-                            contentItem: Text {
-                                text: modelData
-                                color: providerCombo.currentIndex === index ? accent : foreground
-                                font.pixelSize: fontSizeNormal
-                                verticalAlignment: Text.AlignVCenter
-                                elide: Text.ElideRight
-                                leftPadding: 12
-                                rightPadding: 12
-                            }
-
-                            background: Rectangle {
-                                color: providerCombo.highlightedIndex === index ? "#1A2A3A" : panelColorAlt
-                                radius: 8
-                            }
-                        }
-
-                        popup: Popup {
-                            y: providerCombo.height + 6
-                            width: providerCombo.width
-                            implicitHeight: contentItem.implicitHeight + 2
-                            padding: 1
-
-                            contentItem: ListView {
-                                clip: true
-                                implicitHeight: contentHeight
-                                model: providerCombo.popup.visible ? providerCombo.delegateModel : null
-                                currentIndex: providerCombo.highlightedIndex
-                                ScrollIndicator.vertical: ScrollIndicator { }
-                            }
-
-                            background: Rectangle {
-                                color: panelColorAlt
-                                radius: root.radius
-                                border.width: 1
-                                border.color: borderActive
-                            }
+                            // Suppress the text-input autosave while the
+                            // provider's fields are being swapped in.
+                            persistCurrentModel()
+                            ready = false
+                            selectedProvider = providerFromIndex(currentIndex)
+                            applyProviderSettings(selectedProvider)
+                            ready = true
+                            saveConfig()
+                            queueAutoDetectModels()
                         }
                     }
                 }
@@ -458,16 +353,16 @@ Item {
                             id: serverInput
                             width: parent.width - serverLabel.width - 10
                             height: 44
-                            text: "https://api.openai.com"
+                            text: defaultOpenAiApiServer
                             color: foreground
-                            placeholderText: "https://api.openai.com"
+                            placeholderText: defaultOpenAiApiServer
                             placeholderTextColor: subtleForeground
                             font.pixelSize: fontSizeNormal
                             leftPadding: 14
                             rightPadding: 14
                             verticalAlignment: TextInput.AlignVCenter
                             onTextChanged: {
-                                if (!lock && !switchingProvider) {
+                                if (ready) {
                                     saveConfigSoon()
                                     queueAutoDetectModels()
                                 }
@@ -524,7 +419,7 @@ Item {
                                 leftPadding: 14
                                 rightPadding: 14
                                 onTextChanged: {
-                                    if (!lock && !switchingProvider) {
+                                    if (ready) {
                                         saveConfigSoon()
                                         queueAutoDetectModels()
                                     }
@@ -572,7 +467,7 @@ Item {
                             rightPadding: 100
                             onTextChanged: {
                                 selectedModel = text.trim()
-                                if (!lock && !switchingProvider) {
+                                if (ready) {
                                     saveConfigSoon()
                                 }
                             }
@@ -599,7 +494,7 @@ Item {
 
                             Text {
                                 anchors.centerIn: parent
-                                text: modelDetector.isDetectingModels ? "Scanning"
+                                text: modelDetector.isDetecting ? "Scanning"
                                       : modelPopup.opened ? "▴"
                                       : modelDetector.availableModels.length > 0 ? "Select ▾"
                                       : "Detect"
@@ -618,7 +513,7 @@ Item {
                                         modelPopup.close()
                                     } else if (modelDetector.availableModels.length > 0) {
                                         modelPopup.open()
-                                    } else if (!modelDetector.isDetectingModels) {
+                                    } else if (!modelDetector.isDetecting) {
                                         openModelPopupAfterDetect = true
                                         detectModels()
                                     }
@@ -637,88 +532,16 @@ Item {
                         title: "Thinking"
                     }
 
-                    ComboBox {
+                    ThemedComboBox {
                         id: thinkingCombo
                         width: parent.width - thinkingLabel.width - 10
-                        height: 44
                         model: ["Auto (detect by model)", "Qwen 3.8 / 3.6 / 3.5", "DeepSeek", "OpenAI o-series", "Ollama", "Manual (none)"]
-                        currentIndex: thinkingIndex(thinkingMode)
-                        font.pixelSize: fontSizeNormal
-                        hoverEnabled: true
+                        currentIndex: thinkingIndex(setting.thinkingMode)
 
                         onActivated: {
-                            if (!lock) {
-                                thinkingMode = thinkingModeFromIndex(currentIndex)
+                            if (ready) {
+                                setting.thinkingMode = thinkingModeFromIndex(currentIndex)
                                 saveConfig()
-                            }
-                        }
-
-                        background: Rectangle {
-                            color: thinkingCombo.hovered || thinkingCombo.popup.opened ? "#152332" : fieldColor
-                            radius: root.radius
-                            border.width: 1
-                            border.color: thinkingCombo.popup.opened ? borderActive : (thinkingCombo.hovered ? Qt.rgba(0.39, 0.96, 0.84, 0.55) : border)
-                            Behavior on color { ColorAnimation { duration: 160 } }
-                        }
-
-                        contentItem: Text {
-                            text: thinkingCombo.displayText
-                            color: foreground
-                            font.pixelSize: fontSizeNormal
-                            verticalAlignment: Text.AlignVCenter
-                            elide: Text.ElideRight
-                            leftPadding: 14
-                            rightPadding: 40
-                        }
-
-                        indicator: Text {
-                            x: thinkingCombo.width - width - 14
-                            y: (thinkingCombo.height - height) / 2
-                            text: thinkingCombo.popup.opened ? "▴" : "▾"
-                            color: thinkingCombo.hovered || thinkingCombo.popup.opened ? accentHover : mutedForeground
-                            font.pixelSize: 16
-                        }
-
-                        delegate: ItemDelegate {
-                            width: thinkingCombo.width
-                            height: 38
-                            highlighted: thinkingCombo.highlightedIndex === index
-
-                            contentItem: Text {
-                                text: modelData
-                                color: thinkingCombo.currentIndex === index ? accent : foreground
-                                font.pixelSize: fontSizeNormal
-                                verticalAlignment: Text.AlignVCenter
-                                elide: Text.ElideRight
-                                leftPadding: 12
-                                rightPadding: 12
-                            }
-
-                            background: Rectangle {
-                                color: thinkingCombo.highlightedIndex === index ? "#1A2A3A" : panelColorAlt
-                                radius: 8
-                            }
-                        }
-
-                        popup: Popup {
-                            y: thinkingCombo.height + 6
-                            width: thinkingCombo.width
-                            implicitHeight: contentItem.implicitHeight + 2
-                            padding: 1
-
-                            contentItem: ListView {
-                                clip: true
-                                implicitHeight: contentHeight
-                                model: thinkingCombo.popup.visible ? thinkingCombo.delegateModel : null
-                                currentIndex: thinkingCombo.highlightedIndex
-                                ScrollIndicator.vertical: ScrollIndicator { }
-                            }
-
-                            background: Rectangle {
-                                color: panelColorAlt
-                                radius: root.radius
-                                border.width: 1
-                                border.color: borderActive
                             }
                         }
                     }
@@ -791,9 +614,9 @@ Item {
                     height: modelDetectTip.visible ? 34 : 0
                     visible: modelDetectTip.text.length > 0
                     radius: 10
-                    color: modelDetector.modelDetectError !== "" ? Qt.rgba(1.0, 0.48, 0.56, 0.10) : Qt.rgba(0.39, 0.96, 0.84, 0.09)
+                    color: modelDetector.error !== "" ? Qt.rgba(1.0, 0.48, 0.56, 0.10) : Qt.rgba(0.39, 0.96, 0.84, 0.09)
                     border.width: 1
-                    border.color: modelDetector.modelDetectError !== "" ? Qt.rgba(1.0, 0.48, 0.56, 0.35) : Qt.rgba(0.39, 0.96, 0.84, 0.28)
+                    border.color: modelDetector.error !== "" ? Qt.rgba(1.0, 0.48, 0.56, 0.35) : Qt.rgba(0.39, 0.96, 0.84, 0.28)
 
                     Text {
                         id: modelDetectTip
@@ -802,9 +625,9 @@ Item {
                         anchors.verticalCenter: parent.verticalCenter
                         anchors.leftMargin: 12
                         anchors.rightMargin: 12
-                        text: modelDetector.modelDetectError !== "" ? modelDetector.modelDetectError
+                        text: modelDetector.error !== "" ? modelDetector.error
                                                                       : (modelDetector.availableModels.length > 0 ? (modelDetector.availableModels.length + " models detected · click Select to choose") : "")
-                        color: modelDetector.modelDetectError !== "" ? error : mutedForeground
+                        color: modelDetector.error !== "" ? root.error : mutedForeground
                         font.pixelSize: fontSizeSmall
                         elide: Text.ElideRight
                     }
@@ -937,8 +760,6 @@ Item {
 
     ModelDiscoveryService {
         id: modelDetector
-        property bool isDetectingModels: isDetecting
-        property string modelDetectError: error
         onAvailableModelsChanged: {
             if (openModelPopupAfterDetect && availableModels.length > 0) {
                 modelPopup.open()

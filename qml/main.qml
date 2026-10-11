@@ -41,8 +41,6 @@ Window {
     }
 
 
-//    flags:Qt.Window | Qt.FramelessWindowHint | Qt.WindowTitleHint | Qt.WindowSystemMenuHint
-
     // 确保窗口位置在屏幕可见范围内的函数
     function ensureWindowVisible() {
         var screenWidth = Screen.width;
@@ -100,7 +98,7 @@ Window {
         id: selectionTextProvider
         onSelectedTextReady: function(text) {
             appView.inputText = text
-            appView.startTrans("selectedText")
+            appView.startTrans()
             mainWindow.showMainWindow()
         }
         onSelectedTextFailed: function(reason) {
@@ -141,9 +139,6 @@ Window {
         id:mouseArea
        anchors.fill: parent
        property point clickPos: Qt.point(0, 0)
-       onClicked: {
-
-       }
 
        acceptedButtons: Qt.LeftButton
 
@@ -261,10 +256,6 @@ Window {
 
             onActivated:{
                 mainWindow.showMainWindow()
-
-//                mainWindow.x = trayIcon.geometry.x - mainWindow.width/2
-//                mainWindow.y = trayIcon.geometry.y + 50
-//                mainWindow.visible = true
             }
 
 

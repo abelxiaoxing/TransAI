@@ -6,6 +6,8 @@
         <file>qml/ThemeColors.qml</file>
         <file>qml/SettingView.qml</file>
         <file>qml/AppView.qml</file>
+        <file>qml/AppBackground.qml</file>
+        <file>qml/ThemedComboBox.qml</file>
         <file>qml/IconButton.qml</file>
         <file>res/language-solid.svg</file>
         <file>res/thumbtack_no.png</file>

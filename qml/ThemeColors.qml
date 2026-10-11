@@ -38,8 +38,4 @@ QtObject {
     readonly property color warningBg: "#2D1D2F"
     readonly property color infoText: "#8DD9FF"
     readonly property color warningText: "#FF9BAA"
-
-    // Motion
-    readonly property int animationDuration: 250
-    readonly property int animationDurationFast: 80
 }
