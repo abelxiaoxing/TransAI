@@ -8,30 +8,15 @@ Item {
     property url normalUrl      //常规状态下的图片路径
     property url hoveredUrl     //悬浮
     property url pressedUrl     //按下
-    property url disabledUrl    //禁用
-
-    property url checkedUrl
 
     property alias imageItem: img           //直接别名导出Image实例，外面可以修改其任意属性
-    property alias imageUrl: img.source     //别名导出图片路径
-
-    property alias imageWidth: img.width
-    property alias imageHeight: img.height
-    property alias imageAnchors: img.anchors
-    property alias containsMouse: area.containsMouse
-    property alias containsPress: area.containsPress
-
-    property bool checkable:false
-    property bool checked:false
     //点击信号
     signal clicked();
 
     function getSource(){
-        if(checkable){
-            return root.enabled ? (containsPress ? pressedUrl : (checked ? checkedUrl : normalUrl)) : disabledUrl
-        }else{
-            return root.enabled ? (containsPress ? pressedUrl : (containsMouse ? hoveredUrl : normalUrl)) : disabledUrl
-        }
+        return root.enabled
+            ? (area.containsPress ? pressedUrl : (area.containsMouse ? hoveredUrl : normalUrl))
+            : normalUrl
     }
 
     Image {
@@ -56,15 +41,9 @@ Item {
         id: area
         anchors.fill: parent;
         hoverEnabled: root.enabled;
-        onClicked: {
-            root.clicked()
-            if(checkable)
-                checked = !checked
-        }
+        onClicked: root.clicked()
 
         cursorShape: Qt.PointingHandCursor
         preventStealing: true
     }
 }
-
-

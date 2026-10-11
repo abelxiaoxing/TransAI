@@ -18,11 +18,6 @@ ClipboardGuard::ClipboardGuard(QObject* parent)
     }
 }
 
-QString ClipboardGuard::originalText() const
-{
-    return m_originalText;
-}
-
 QString ClipboardGuard::currentText() const
 {
     QClipboard* clipboard = QGuiApplication::clipboard();

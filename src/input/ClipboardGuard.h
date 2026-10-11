@@ -12,7 +12,6 @@ class ClipboardGuard : public QObject
 public:
     explicit ClipboardGuard(QObject* parent = nullptr);
 
-    QString originalText() const;
     QString currentText() const;
     void restore() const;
 

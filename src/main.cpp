@@ -94,7 +94,6 @@ int main(int argc, char *argv[])
     QQmlApplicationEngine engine;
     const QUrl url(QStringLiteral("qrc:///qml/main.qml"));
     engine.rootContext()->setContextProperty("setting", setting);
-    engine.rootContext()->setContextProperty("app", &app);
     engine.rootContext()->setContextProperty("appCommandServer", &commandServer);
     engine.rootContext()->setContextProperty("startHidden", startHidden);
     engine.rootContext()->setContextProperty("initialCommand", translateSelection ? "translate-selection" : "");
