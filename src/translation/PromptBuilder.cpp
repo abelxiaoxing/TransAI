@@ -34,6 +34,9 @@ QJsonArray PromptBuilder::buildMessages(const TranslationRequest& request, const
                                "do not include the tags.").arg(targetLanguage);
         userMsg = "<text_to_translate>" + request.text + "</text_to_translate>";
         break;
+    // TODO(phase-2c): ExplainWord / CorrectGrammar have no UI entry yet
+    // (AppView.getMode() always returns Translate); the prompts are kept
+    // ready for the planned mode selector.
     case TranslationMode::ExplainWord:
         systemPrompt = QString(
             "Explain the text enclosed in <text_to_explain> tags. "

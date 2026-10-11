@@ -4,6 +4,7 @@
 #include <QJsonObject>
 #include <QNetworkRequest>
 
+#include "providers/ProviderDefaults.h"
 #include "providers/ProviderEndpointBuilder.h"
 #include "providers/ThinkingPolicy.h"
 #include "translation/PromptBuilder.h"
@@ -85,12 +86,10 @@ void TranslationService::translate(const TranslationRequest& request)
     cancelCurrentRequest();
 
     TranslationRequest normalizedRequest = request;
-    normalizedRequest.provider = normalizedRequest.provider == "ollama" ? "ollama" : "openai";
+    normalizedRequest.provider = ProviderDefaults::normalizedProviderName(normalizedRequest.provider);
 
     if (normalizedRequest.apiServer.trimmed().isEmpty()) {
-        normalizedRequest.apiServer = normalizedRequest.provider == "ollama"
-            ? "http://localhost:11434"
-            : "https://api.openai.com";
+        normalizedRequest.apiServer = ProviderDefaults::defaultApiServerForProvider(normalizedRequest.provider);
     }
 
     setResponseError("");
@@ -110,9 +109,9 @@ void TranslationService::translate(const TranslationRequest& request)
         return;
     }
 
-    if (normalizedRequest.provider != "ollama" && normalizedRequest.apiKey.trimmed().length() < 10) {
+    if (normalizedRequest.provider != "ollama" && !ProviderDefaults::isPlausibleApiKey(normalizedRequest.apiKey)) {
         setIsRequesting(false);
-        setResponseError("Please provide the correct apikey");
+        setResponseError(ProviderDefaults::apiKeyErrorMessage());
         emit translationFailed(m_responseError);
         return;
     }
@@ -164,7 +163,6 @@ void TranslationService::translate(const TranslationRequest& request)
         StreamParseResult result = m_streamParser.appendChunk(currentReply->readAll());
         const StreamParseResult finalResult = m_streamParser.flush();
         result.content += finalResult.content;
-        result.done = result.done || finalResult.done;
         if (finalResult.hasError) {
             result.hasError = true;
             if (!finalResult.errorMessage.isEmpty()) {

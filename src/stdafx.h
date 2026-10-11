@@ -11,6 +11,9 @@ public:                                                                         
   Q_SIGNAL void M##Changed();                                                                                          \
   void M(const TYPE& in_##M)                                                                                           \
   {                                                                                                                    \
+    if (_##M == in_##M) {                                                                                              \
+      return;                                                                                                          \
+    }                                                                                                                  \
     _##M = in_##M;                                                                                                     \
     Q_EMIT M##Changed();                                                                                               \
   }                                                                                                                    \

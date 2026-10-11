@@ -37,12 +37,11 @@ src/
 ├── app/
 │   ├── ApplicationCommandServer.*  # Local socket server for single-instance commands
 ├── input/
-│   ├── GlobalShortcutManager.*     # Public shortcut facade (QML type)
-│   ├── ShortcutBackend.h           # Abstract shortcut backend interface
-│   ├── QHotkeyShortcutBackend.*    # QHotkey-based backend (disabled on Wayland)
+│   ├── GlobalShortcutManager.*     # QHotkey-based global hotkeys (QML type; disabled on Wayland)
 │   ├── SelectionTextProvider.*     # Selected-text extraction per platform (QML type)
 │   └── ClipboardGuard.*            # Save/restore clipboard around simulated copy
 ├── providers/
+│   ├── ProviderDefaults.h          # Shared provider defaults (server URLs, api-key check)
 │   ├── ProviderEndpointBuilder.*   # Chat/models URL normalization per provider
 │   ├── ModelDiscoveryService.*     # /v1/models + ollama /api/tags detection (QML type)
 │   └── ThinkingPolicy.*            # Per-vendor "suppress thinking" request params
@@ -57,6 +56,8 @@ qml/
 ├── main.qml                        # Main window, tray, drag, shortcuts, command dispatch
 ├── AppView.qml                     # Translation interface
 ├── SettingView.qml                 # Settings UI (provider/model/hotkey)
+├── AppBackground.qml               # Shared gradient + neon-circle page background
+├── ThemedComboBox.qml              # Shared dark-theme ComboBox (settings page)
 ├── GTextEdit.qml                   # Flickable-based text editor
 ├── IconButton.qml                  # Image-based stateful button
 ├── ThemeColors.qml                 # Dark-palette singleton (registered in qmldir)
@@ -76,13 +77,14 @@ scripts/                            # Windows build/publish scripts
 
 ### QML Patterns
 - **Theme Colors**: Single source of truth is the `ThemeColors` singleton (qml/ThemeColors.qml). Views alias needed tokens as readonly properties; do not hardcode palette hex values.
+- **Shared chrome**: Page backgrounds come from `AppBackground`; settings-page dropdowns use `ThemedComboBox`. Extend those components instead of copying their styles.
 - **Declarative state**: Avoid imperative assignments that break bindings (e.g. opacity driven by MouseArea state must stay a binding).
 - **Window Management**: `ensureWindowVisible()` keeps windows on screen; auto-hide on focus loss unless pinned
 - **Platform Detection**: `Qt.platform.os` for platform-specific UI adjustments
 
 ### Settings Storage
 - Location: `QStandardPaths::AppConfigLocation` (`~/.config/TransAI/config.json` on Linux)
-- Format: JSON; per-provider keys (`openaiApiServer/openaiApiKey/openaiModel`, `ollamaApiServer/ollamaModel`) plus active `provider`, `thinkingMode`, `shortCut` and legacy top-level `apiKey/apiServer/model` for backward compatibility
+- Format: JSON with `configVersion`; per-provider keys (`openaiApiServer/openaiApiKey/openaiModel`, `ollamaApiServer/ollamaModel`) plus active `provider`, `thinkingMode`, `shortCut`. Legacy top-level `apiKey/apiServer/model` are READ as one-way migration fallbacks but no longer written
 - API keys are stored in plain text; the file is chmod 600 on Unix
 
 ### Single-Instance & Selection Translation
@@ -103,6 +105,7 @@ scripts/                            # Windows build/publish scripts
 2. **Wayland**: global hotkey registration is not available; use the command-server path
 3. **macOS**: ApplicationServices framework required for simulated copy
 4. **Qt logging on systemd distros**: qDebug output goes to the systemd journal, not stderr; use `journalctl --user` when debugging, or `QT_FORCE_STDERR_LOGGING=1`
+5. **Headless platforms (offscreen/minimal/dummy)**: GlobalShortcutManager refuses registration there (QHotkey's X11 backend segfaults); smoke tests log a shortcutRegisterFailed instead of crashing
 
 ### Window Management
 - Always-on-top is enabled by default at startup; the pin toggle mutates `mainWindow.flags`

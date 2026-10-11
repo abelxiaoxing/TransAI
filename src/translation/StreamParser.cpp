@@ -29,7 +29,6 @@ StreamParseResult StreamParser::appendChunk(const QByteArray& data)
                 result.errorMessage = partial.errorMessage;
             }
         }
-        result.done = result.done || partial.done;
     }
 
     return result;
@@ -75,7 +74,6 @@ StreamParseResult StreamParser::parseEvent(const QByteArray& event) const
                 result.errorMessage = partial.errorMessage;
             }
         }
-        result.done = result.done || partial.done;
     }
 
     if (!hasDataLine) {
@@ -114,8 +112,8 @@ StreamParseResult StreamParser::parseEventPayload(const QByteArray& payload) con
     if (trimmedPayload.isEmpty()) {
         return result;
     }
+    // Terminal SSE marker: recognized so it is never parsed as JSON.
     if (trimmedPayload == "[DONE]") {
-        result.done = true;
         return result;
     }
 

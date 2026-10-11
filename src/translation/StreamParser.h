@@ -8,7 +8,6 @@ struct StreamParseResult {
     QString content;
     QString errorMessage;
     bool hasError = false;
-    bool done = false;
 };
 
 class StreamParser

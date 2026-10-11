@@ -4,13 +4,6 @@
 #include <QString>
 #include <QVariantMap>
 
-enum class TranslationSource {
-    ManualInput,
-    SelectedText,
-    ScreenshotOcr,
-    ImageMultimodal
-};
-
 enum class TranslationMode {
     Translate,
     ExplainWord,
@@ -21,7 +14,6 @@ struct TranslationRequest {
     QString text;
     QString targetLanguage;
     TranslationMode mode = TranslationMode::Translate;
-    TranslationSource source = TranslationSource::ManualInput;
 
     QString provider;
     QString apiServer;
@@ -36,7 +28,6 @@ struct TranslationRequest {
 
 TranslationMode translationModeFromString(const QString& value);
 TranslationMode translationModeFromInt(int value);
-TranslationSource translationSourceFromString(const QString& value);
 TranslationRequest translationRequestFromMap(const QVariantMap& map);
 
 #endif // TRANSLATION_REQUEST_H

@@ -1,5 +1,7 @@
 #include "translation/TranslationRequest.h"
 
+#include "providers/ThinkingPolicy.h"
+
 namespace {
 QString normalizedString(const QString& value)
 {
@@ -36,26 +38,11 @@ TranslationMode translationModeFromInt(int value)
     }
 }
 
-TranslationSource translationSourceFromString(const QString& value)
-{
-    const QString source = normalizedString(value);
-    if (source == "selected" || source == "selectedtext" || source == "selection") {
-        return TranslationSource::SelectedText;
-    }
-    if (source == "screenshot" || source == "screenshotocr" || source == "ocr") {
-        return TranslationSource::ScreenshotOcr;
-    }
-    if (source == "image" || source == "imagemultimodal" || source == "multimodal") {
-        return TranslationSource::ImageMultimodal;
-    }
-    return TranslationSource::ManualInput;
-}
-
 TranslationRequest translationRequestFromMap(const QVariantMap& map)
 {
     TranslationRequest request;
     request.text = map.value("text").toString();
-    request.targetLanguage = map.value("targetLanguage", map.value("transToLang")).toString();
+    request.targetLanguage = map.value("targetLanguage").toString();
     request.provider = map.value("provider", "openai").toString();
     request.apiServer = map.value("apiServer").toString();
     request.apiKey = map.value("apiKey").toString();
@@ -68,14 +55,7 @@ TranslationRequest translationRequestFromMap(const QVariantMap& map)
         request.mode = translationModeFromString(mode.toString());
     }
 
-    request.source = translationSourceFromString(map.value("source", "manual").toString());
-
-    const QString thinkingMode = map.value("thinkingMode", "auto").toString().trimmed().toLower();
-    if (thinkingMode == "qwen" || thinkingMode == "deepseek" || thinkingMode == "openai"
-        || thinkingMode == "ollama" || thinkingMode == "manual") {
-        request.thinkingMode = thinkingMode;
-    } else {
-        request.thinkingMode = "auto";
-    }
+    request.thinkingMode =
+        ThinkingPolicyBuilder::normalizeThinkingMode(map.value("thinkingMode", "auto").toString());
     return request;
 }

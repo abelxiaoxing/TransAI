@@ -10,8 +10,14 @@
 #include <QStandardPaths>
 #include <QDebug>
 
+#include "providers/ProviderDefaults.h"
+#include "providers/ThinkingPolicy.h"
+
 namespace {
 const char kConfigFileName[] = "config.json";
+// Legacy top-level keys from the pre-per-provider era. They are only READ
+// (migrated) in loadConfig(); updateConfig() no longer writes them, so a
+// downgrade to a pre-migration binary sees the last state frozen on disk.
 const char kApiServerKey[] = "apiServer";
 const char kApiKeyKey[] = "apiKey";
 const char kModelKey[] = "model";
@@ -23,8 +29,8 @@ const char kOllamaModelKey[] = "ollamaModel";
 const char kShortCutKey[] = "shortCut";
 const char kProviderKey[] = "provider";
 const char kThinkingModeKey[] = "thinkingMode";
-const char kDefaultApiServer[] = "https://api.openai.com";
-const char kDefaultOllamaApiServer[] = "http://localhost:11434";
+const char kConfigVersionKey[] = "configVersion";
+constexpr int kConfigVersion = 2;
 
 QStringList existingConfigCandidates()
 {
@@ -80,10 +86,10 @@ bool ensureConfigDirExists(const QString& configPath)
 Setting::Setting(QObject* parent)
     : QObject(parent)
 {
-    _openaiApiServer = kDefaultApiServer;
+    _openaiApiServer = ProviderDefaults::openAiApiServer();
     _openaiApiKey = "";
     _openaiModel = "gpt-3.5-turbo";
-    _ollamaApiServer = kDefaultOllamaApiServer;
+    _ollamaApiServer = ProviderDefaults::ollamaApiServer();
     _ollamaModel = "";
     _shortCut = "";
     _provider = "openai";
@@ -148,8 +154,8 @@ bool Setting::loadConfig()
         _openaiApiServer = "";
     } else if (_openaiApiServer.trimmed().isEmpty()) {
         _openaiApiServer = _provider == "openai"
-            ? (legacyApiServer.trimmed().isEmpty() ? kDefaultApiServer : legacyApiServer.trimmed())
-            : kDefaultApiServer;
+            ? (legacyApiServer.trimmed().isEmpty() ? ProviderDefaults::openAiApiServer() : legacyApiServer.trimmed())
+            : ProviderDefaults::openAiApiServer();
     }
 
     _openaiApiKey = obj.value(kOpenAIApiKeyKey).toString();
@@ -166,15 +172,16 @@ bool Setting::loadConfig()
 
     _ollamaApiServer = obj.value(kOllamaApiServerKey).toString();
     if (_ollamaApiServer.trimmed().isEmpty()) {
-        _ollamaApiServer = kDefaultOllamaApiServer;
+        _ollamaApiServer = ProviderDefaults::ollamaApiServer();
     }
     _ollamaModel = obj.value(kOllamaModelKey).toString();
     _shortCut = obj.value(kShortCutKey).toString();
 
-    _thinkingMode = obj.value(kThinkingModeKey).toString("auto").trimmed().toLower();
-    if (_thinkingMode != "auto" && _thinkingMode != "qwen" && _thinkingMode != "deepseek"
-        && _thinkingMode != "openai" && _thinkingMode != "ollama" && _thinkingMode != "manual") {
-        _thinkingMode = "auto";
+    const QString parsedThinkingMode =
+        ThinkingPolicyBuilder::normalizeThinkingMode(obj.value(kThinkingModeKey).toString());
+    if (_thinkingMode != parsedThinkingMode) {
+        _thinkingMode = parsedThinkingMode;
+        emit thinkingModeChanged();
     }
 
     applyActiveProviderConfig();
@@ -183,7 +190,7 @@ bool Setting::loadConfig()
 
 void Setting::applyProviderConfig(QString provider)
 {
-    const QString normalized = provider == "ollama" ? "ollama" : "openai";
+    const QString normalized = ProviderDefaults::normalizedProviderName(provider);
     if (_provider == normalized) {
         applyActiveProviderConfig();
         return;
@@ -196,8 +203,8 @@ void Setting::applyProviderConfig(QString provider)
 void Setting::applyActiveProviderConfig()
 {
     const QString nextApiServer = _provider == "ollama"
-        ? (_ollamaApiServer.trimmed().isEmpty() ? kDefaultOllamaApiServer : _ollamaApiServer)
-        : (_openaiApiServer.trimmed().isEmpty() ? kDefaultApiServer : _openaiApiServer);
+        ? (_ollamaApiServer.trimmed().isEmpty() ? ProviderDefaults::ollamaApiServer() : _ollamaApiServer)
+        : (_openaiApiServer.trimmed().isEmpty() ? ProviderDefaults::openAiApiServer() : _openaiApiServer);
     const QString nextApiKey = _openaiApiKey;
     const QString nextModel = _provider == "ollama"
         ? _ollamaModel
@@ -224,9 +231,7 @@ void Setting::updateConfig()
     }
 
     QJsonObject obj{
-        {kApiKeyKey, _openaiApiKey},
-        {kModelKey, _provider == "ollama" ? _ollamaModel : _openaiModel},
-        {kApiServerKey, _provider == "ollama" ? _ollamaApiServer : _openaiApiServer},
+        {kConfigVersionKey, kConfigVersion},
         {kShortCutKey, _shortCut},
         {kProviderKey, _provider},
         {kThinkingModeKey, _thinkingMode},
