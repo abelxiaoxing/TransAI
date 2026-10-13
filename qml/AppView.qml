@@ -24,16 +24,25 @@ Item {
         return "Ready"
     }
     signal settingClicked;
+    // Emitted when the user (or startup) changes the pinned state; main.qml
+    // applies the Qt.WindowStaysOnTopHint flag — AppView never touches the
+    // window directly.
+    signal pinRequested(bool pinned)
+
+    // Single source of truth for "stays on top". The pin icon derives from
+    // it and main.qml's focus-loss logic reads it.
+    function setPinned(value) {
+        pinned = value
+        pinRequested(value)
+    }
 
     // 主题颜色（统一来自 ThemeColors 单例）
-    readonly property color foreground: ThemeColors.foreground
     readonly property color accent: ThemeColors.accent
     readonly property color accentHover: ThemeColors.accentHover
     readonly property color border: ThemeColors.border
     readonly property color borderActive: ThemeColors.borderActive
     readonly property color panelColor: ThemeColors.panelColor
     readonly property color panelColorAlt: ThemeColors.panelColorAlt
-    readonly property color fieldColor: ThemeColors.fieldColor
     readonly property color error: ThemeColors.error
     readonly property color infoBg: ThemeColors.infoBg
     readonly property color warningBg: ThemeColors.warningBg
@@ -73,9 +82,7 @@ Item {
 
     Component.onCompleted: {
         // 应用启动时默认置顶
-        mainWindow.flags = mainWindow.flags | Qt.WindowStaysOnTopHint
-        tItem.state = "yes"
-        pinned = true
+        root.setPinned(true)
     }
 
     AppBackground {
@@ -109,7 +116,7 @@ Item {
             anchors.bottom: parent.bottom
             anchors.bottomMargin: -10
             height: 1
-            color: Qt.rgba(100.0 / 255.0, 212.0 / 255.0, 255.0 / 255.0, 0.12)
+            color: Qt.alpha(root.infoText, 0.12)
         }
 
 
@@ -227,44 +234,19 @@ Item {
         height: root.height / 3
     }
 
-    Item{
-        id:tItem
-        opacity: 1
+    // 置顶按钮：唯一状态源是 root.pinned，图标随其派生，不再单独维护 state
+    Image {
+        id: pinButton
         width: 22
-        height:22
+        height: 22
         anchors.top: inputItem.bottom
         anchors.topMargin: 10
-        anchors.right:inputItem.right
-        state:"no"
-        Image{
-            id:tyes
+        anchors.right: inputItem.right
+        source: root.pinned ? "qrc:///res/thumbtack_yes.png" : "qrc:///res/thumbtack_no.png"
+        MouseArea {
             anchors.fill: parent
-            source:"qrc:///res/thumbtack_yes.png"
-            visible:tItem.state === "yes"
-            MouseArea{
-                anchors.fill: parent
-                onClicked: {
-                    mainWindow.flags = mainWindow.flags & ~Qt.WindowStaysOnTopHint
-                    tItem.state = "no"
-                    pinned = false
-
-                }
-            }
-        }
-        Image{
-            id:tyno
-            anchors.fill: parent
-            source:"qrc:///res/thumbtack_no.png"
-            visible:tItem.state === "no"
-            MouseArea{
-                anchors.fill: parent
-                onClicked: {
-                    mainWindow.flags = mainWindow.flags |Qt.WindowStaysOnTopHint
-                    tItem.state = "yes"
-                    pinned = true
-
-                }
-            }
+            cursorShape: Qt.PointingHandCursor
+            onClicked: root.setPinned(!root.pinned)
         }
     }
 
@@ -336,7 +318,7 @@ Item {
         anchors.right:parent.right
         anchors.margins:10
         opacity: 1
-        text:(Qt.platform.os == "macos" || Qt.platform.os == "osx")?"Translate ⌘Enter":"Translate (Ctrl+Enter)"
+        text: Qt.platform.os === "macos" ? "Translate ⌘Enter" : "Translate (Ctrl+Enter)"
         font.capitalization: Font.MixedCase
         enabled:inputArea.text.length > 0
         visible: !translationService.isRequesting
@@ -347,7 +329,7 @@ Item {
         background: Rectangle {
             color: transBtn.enabled
                 ? (transBtn.pressed ? Qt.darker(root.accent, 1.35) : (transBtn.hovered ? root.accentHover : root.accent))
-                : Qt.rgba(101.0 / 255.0, 244.0 / 255.0, 214.0 / 255.0, 0.35)
+                : Qt.alpha(root.accent, 0.35)
             radius: root.radius
             border.width: 1
             border.color: root.borderActive
@@ -416,107 +398,14 @@ Item {
         }
     }
 
-    ComboBox {
-        id:langSelector
-        z:2
+    ThemedComboBox {
+        id: langSelector
+        z: 2
         anchors.bottom: parent.bottom
-        anchors.left:parent.left
-        anchors.margins:10
-        opacity: 1
+        anchors.left: parent.left
+        anchors.margins: 10
         currentIndex: 0
-        model:["简体中文","繁体中文", "English", "Japanese", "German", "Korean", "Español", "français"]
-        height:40
-
-        // 应用主题样式
-        background: Rectangle {
-            color: langSelector.hovered || langSelector.popup.opened || langSelector.down ? Qt.darker(root.fieldColor, 1.08) : root.fieldColor
-            radius: root.radius
-            border.width: 1
-            border.color: langSelector.hovered || langSelector.popup.opened ? root.borderActive : root.border
-            Behavior on color {
-                ColorAnimation {
-                    duration: 80
-                    easing.type: Easing.OutQuad
-                }
-            }
-            Behavior on border.color {
-                ColorAnimation {
-                    duration: 80
-                    easing.type: Easing.OutQuad
-                }
-            }
-        }
-
-        contentItem: Text {
-            text: langSelector.currentText
-            color: root.foreground
-            horizontalAlignment: Text.AlignLeft
-            verticalAlignment: Text.AlignVCenter
-            leftPadding: 10
-            rightPadding: langSelector.indicator.width + 10
-            font.pixelSize: root.fontSizeNormal
-        }
-
-        delegate: ItemDelegate {
-            width: langSelector.width
-            height: 40
-            contentItem: Text {
-                text: modelData
-                color: root.foreground
-                font.pixelSize: root.fontSizeNormal
-                elide: Text.ElideRight
-                horizontalAlignment: Text.AlignLeft
-                verticalAlignment: Text.AlignVCenter
-                leftPadding: 10
-                rightPadding: 10
-            }
-            background: Rectangle {
-                color: langSelector.highlightedIndex === index ? root.accentHover : "transparent"
-                radius: root.radius
-            }
-        }
-
-        indicator: Canvas {
-            id: canvas
-            x: langSelector.width - width - 10
-            y: (langSelector.height - height) / 2
-            width: 12
-            height: 8
-            contextType: "2d"
-
-            onPaint: {
-                context.reset()
-                context.moveTo(0, 0)
-                context.lineTo(width, 0)
-                context.lineTo(width / 2, height)
-                context.closePath()
-                context.fillStyle = root.foreground
-                context.fill()
-            }
-        }
-
-        popup: Popup {
-            y: langSelector.height
-            width: langSelector.width
-            implicitHeight: contentItem.implicitHeight
-            padding: 1
-
-            contentItem: ListView {
-                clip: true
-                implicitHeight: contentHeight
-                model: langSelector.delegateModel
-                currentIndex: langSelector.highlightedIndex
-
-                ScrollIndicator.vertical: ScrollIndicator { }
-            }
-
-            background: Rectangle {
-                color: root.panelColorAlt
-                radius: root.radius
-                border.color: root.border
-                border.width: 1
-            }
-        }
+        model: ["简体中文", "繁体中文", "English", "Japanese", "German", "Korean", "Español", "français"]
     }
 
     TranslationService{

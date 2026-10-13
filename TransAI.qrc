@@ -9,10 +9,8 @@
         <file>qml/AppBackground.qml</file>
         <file>qml/ThemedComboBox.qml</file>
         <file>qml/IconButton.qml</file>
-        <file>res/language-solid.svg</file>
         <file>res/thumbtack_no.png</file>
         <file>res/thumbtack_yes.png</file>
-        <file>res/logo/logo.icns</file>
         <file>res/logo/logo.ico</file>
         <file>res/logo/logo.png</file>
         <file>qml/GTextEdit.qml</file>

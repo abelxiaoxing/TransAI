@@ -9,7 +9,6 @@ Item {
     property url hoveredUrl     //悬浮
     property url pressedUrl     //按下
 
-    property alias imageItem: img           //直接别名导出Image实例，外面可以修改其任意属性
     //点击信号
     signal clicked();
 

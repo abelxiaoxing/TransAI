@@ -91,6 +91,9 @@ Window {
         }
         onShortcutRegisterFailed: function(actionId, reason) {
             console.warn("Shortcut registration failed", actionId, reason)
+            // Surface startup/registration failures in the settings UI instead
+            // of leaving the user with a silently broken hotkey.
+            settingView.hotkeyError = reason
         }
     }
 
@@ -236,7 +239,7 @@ Window {
         SystemTrayIcon {
             id: trayIcon
             visible:true
-            icon.source: (Qt.platform.os === "macos" || Qt.platform.os === "osx")?"qrc:///res/tray.png":"qrc:///res/logo/logo.png"
+            icon.source: Qt.platform.os === "macos" ? "qrc:///res/tray.png" : "qrc:///res/logo/logo.png"
             // create menu for status bar
 
             menu: Menu {
@@ -254,6 +257,9 @@ Window {
                 MenuItem {
                     text: "Quit"
                     onTriggered: {
+                        // Qt.quit() bypasses the window's onClosing, so flush
+                        // debounced settings edits here as well.
+                        settingView.flushPendingSave()
                         Qt.quit()
                     }
                 }
@@ -266,25 +272,33 @@ Window {
 
         }
 
-        SwipeView {
-            id: swipeView
+        // 页面切换容器：仅作为两页的宿主，无滑动手势，StackLayout 语义更准确
+        StackLayout {
+            id: pageStack
             currentIndex: 0
             anchors.fill: parent
-            orientation: Qt.Horizontal
-            interactive: false
             AppView{
                 id:appView
-                height:mainWindow.height
                 onSettingClicked: {
                     settingView.reload()
-                    swipeView.currentIndex = 1
+                    pageStack.currentIndex = 1
+                }
+                // AppView 只上报置顶变化，由窗口本身应用 flags
+                onPinRequested: function(pinned) {
+                    if (pinned) {
+                        mainWindow.flags = mainWindow.flags | Qt.WindowStaysOnTopHint
+                    } else {
+                        mainWindow.flags = mainWindow.flags & ~Qt.WindowStaysOnTopHint
+                    }
                 }
             }
             SettingView{
                 id:settingView
                 shortcutRegistrar: shortcutRegistrar
+                hotkeysSupported: shortcutManager.hotkeysSupported
                 onBackClicked: {
-                    swipeView.currentIndex = 0
+                    settingView.flushPendingSave()
+                    pageStack.currentIndex = 0
                 }
             }
         }

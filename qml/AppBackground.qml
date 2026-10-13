@@ -27,8 +27,8 @@ Item {
         radius: 130
         x: -120
         y: -90
-        color: Qt.rgba(0.39, 0.96, 0.84, 0.12)
-        border.color: Qt.rgba(0.39, 0.96, 0.84, 0.18)
+        color: Qt.alpha(ThemeColors.accent, 0.12)
+        border.color: Qt.alpha(ThemeColors.accent, 0.18)
         border.width: 1
     }
 
@@ -40,8 +40,8 @@ Item {
         anchors.rightMargin: -110
         anchors.top: parent.top
         anchors.topMargin: root.accentCircleTopMargin
-        color: Qt.rgba(0.49, 0.36, 1.0, 0.10)
-        border.color: Qt.rgba(0.49, 0.36, 1.0, 0.16)
+        color: Qt.alpha(ThemeColors.accentPurple, 0.10)
+        border.color: Qt.alpha(ThemeColors.accentPurple, 0.16)
         border.width: 1
     }
 }

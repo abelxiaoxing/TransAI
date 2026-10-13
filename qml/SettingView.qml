@@ -8,15 +8,27 @@ Item {
 
     property bool ready: false
     property string selectedProvider: "openai"
-    property string selectedModel: defaultOpenAiModel
     property bool openModelPopupAfterDetect: false
+    // Single source of truth for the model name: the input field itself.
+    // (Previously a separate property mirrored the text, which forced manual
+    // re-sync everywhere because the text binding broke on first user input.)
+    property alias selectedModel: modelInput.text
     property string autoDetectServer: ""
     property string autoDetectKey: ""
     property string autoDetectProvider: ""
     property string shortcutBeforeRecording: ""
     property bool shortcutRecordingAccepted: false
     property QtObject shortcutRegistrar: null
+    // Bound from main.qml (GlobalShortcutManager.hotkeysSupported). False on
+    // Wayland/headless, where the recorder is replaced by an explanation.
+    property bool hotkeysSupported: true
+    // Last hotkey-registration failure, shown inline. main.qml also writes
+    // here when registration fails outside a recording session.
+    property string hotkeyError: ""
     readonly property bool isOllamaProvider: selectedProvider === "ollama"
+    // Single source of truth for the thinking-mode list; the index order must
+    // match the thinkingCombo model below.
+    readonly property var thinkingModes: ["auto", "qwen", "deepseek", "openai", "ollama", "manual"]
     // Defaults live in ProviderDefaults (C++); Setting re-exposes them so the
     // UI never hardcodes URLs or model names in parallel.
     readonly property string defaultOllamaApiServer: setting.defaultOllamaApiServer
@@ -36,12 +48,19 @@ Item {
     readonly property color border: ThemeColors.border
     readonly property color borderActive: ThemeColors.borderActive
     readonly property color error: ThemeColors.error
-    readonly property int fontSizeSmall: 16
-    readonly property int fontSizeNormal: 20
-    readonly property int fontSizeLarge: 22
-    readonly property int fontSizeTitle: 25
-    readonly property real radius: 12
-    readonly property real radiusLarge: 18
+    readonly property color warning: ThemeColors.warningText
+    readonly property color infoText: ThemeColors.infoText
+    readonly property color fieldColorFocus: ThemeColors.fieldColorFocus
+    readonly property color rowHighlightColor: ThemeColors.rowHighlightColor
+    readonly property color cardColor: ThemeColors.cardColor
+    readonly property int fontSizeLabel: 12
+    readonly property int fontSizeSmall: 13
+    readonly property int fontSizeNormal: 15
+    readonly property int fontSizeLarge: 17
+    readonly property int fontSizeTitle: 21
+    readonly property real radius: 10
+    readonly property real radiusLarge: 16
+    readonly property int controlHeight: 40
 
     function providerFromIndex(index) {
         return index === 1 ? "ollama" : "openai"
@@ -52,18 +71,23 @@ Item {
     }
 
     function thinkingModeFromIndex(index) {
-        const modes = ["auto", "qwen", "deepseek", "openai", "ollama", "manual"]
-        return modes[index] || "auto"
+        return root.thinkingModes[index] || "auto"
     }
 
     function thinkingIndex(mode) {
-        const modes = ["auto", "qwen", "deepseek", "openai", "ollama", "manual"]
-        const i = modes.indexOf(mode)
+        const i = root.thinkingModes.indexOf(mode)
         return i >= 0 ? i : 0
     }
 
-    function normalizedApiServer() {
-        return serverInput.text.trim().length > 0 ? serverInput.text.trim() : defaultOpenAiApiServer
+    // Server used for detection requests: the typed value, else the provider
+    // default (the C++ side applies the same fallback to an empty string;
+    // resolving it here additionally keeps the auto-detect dedup key stable).
+    function effectiveServer() {
+        const typed = serverInput.text.trim()
+        if (typed.length > 0) {
+            return typed
+        }
+        return isOllamaProvider ? defaultOllamaApiServer : defaultOpenAiApiServer
     }
 
     function applyProviderSettings(provider) {
@@ -83,29 +107,15 @@ Item {
         setting.applyProviderConfig(selectedProvider)
     }
 
-    function persistCurrentModel() {
-        const model = selectedModel.trim()
-        if (selectedProvider === "ollama") {
-            setting.ollamaModel = model
-        } else {
-            setting.openaiModel = model.length > 0 ? model : defaultOpenAiModel
-        }
-    }
-
     function reload() {
         ready = false
         setting.loadConfig()
         selectedProvider = setting.provider === "ollama" ? "ollama" : "openai"
         providerCombo.currentIndex = providerIndex(selectedProvider)
+        // applyProviderSettings 覆盖 server/key/model 的回填，此处不再重复推导
+        // （重复推导曾导致两处逻辑漂移的风险）。
         applyProviderSettings(selectedProvider)
-        keyInput.text = setting.openaiApiKey
         shortcutText.text = setting.shortCut
-        selectedModel = isOllamaProvider ? setting.ollamaModel : setting.openaiModel
-        if (selectedModel.trim().length === 0 && !isOllamaProvider) {
-            selectedModel = defaultOpenAiModel
-        }
-        openModelPopupAfterDetect = false
-        modelPopup.close()
 
         ready = true
         Qt.callLater(function() {
@@ -131,6 +141,8 @@ Item {
         setting.shortCut = shortcutText.text
         setting.applyProviderConfig(selectedProvider)
         setting.updateConfig()
+        savedHint.opacity = 1
+        savedTimer.restart()
     }
 
     // Debounced save for text inputs: writes at most once per pause in typing
@@ -151,14 +163,14 @@ Item {
     }
 
     function detectModels() {
-        modelDetector.detectModels(isOllamaProvider ? (serverInput.text.trim().length > 0 ? serverInput.text.trim() : defaultOllamaApiServer) : serverInput.text.trim(), keyInput.text, selectedProvider)
+        modelDetector.detectModels(effectiveServer(), keyInput.text, selectedProvider)
     }
 
     function queueAutoDetectModels() {
         if (!ready) {
             return
         }
-        const server = isOllamaProvider ? (serverInput.text.trim().length > 0 ? serverInput.text.trim() : defaultOllamaApiServer) : normalizedApiServer()
+        const server = effectiveServer()
         const key = isOllamaProvider ? "" : keyInput.text.trim()
         if (!isOllamaProvider && !setting.hasPlausibleApiKey(key)) {
             return
@@ -173,27 +185,15 @@ Item {
     }
 
     function keyNameFromEvent(event) {
-        if (event.key >= Qt.Key_A && event.key <= Qt.Key_Z) {
+        if ((event.key >= Qt.Key_A && event.key <= Qt.Key_Z)
+            || (event.key >= Qt.Key_0 && event.key <= Qt.Key_9)) {
             return String.fromCharCode(event.key)
         }
-        if (event.key >= Qt.Key_0 && event.key <= Qt.Key_9) {
-            return String.fromCharCode(event.key)
+        // Qt.Key_F1..Qt.Key_F12 are consecutive values.
+        if (event.key >= Qt.Key_F1 && event.key <= Qt.Key_F12) {
+            return "F" + (event.key - Qt.Key_F1 + 1)
         }
-        switch (event.key) {
-        case Qt.Key_F1: return "F1"
-        case Qt.Key_F2: return "F2"
-        case Qt.Key_F3: return "F3"
-        case Qt.Key_F4: return "F4"
-        case Qt.Key_F5: return "F5"
-        case Qt.Key_F6: return "F6"
-        case Qt.Key_F7: return "F7"
-        case Qt.Key_F8: return "F8"
-        case Qt.Key_F9: return "F9"
-        case Qt.Key_F10: return "F10"
-        case Qt.Key_F11: return "F11"
-        case Qt.Key_F12: return "F12"
-        default: return ""
-        }
+        return ""
     }
 
     function shortcutFromEvent(event) {
@@ -240,31 +240,34 @@ Item {
     Flickable {
         id: flickable
         anchors.fill: parent
-        anchors.margins: 18
-        contentHeight: contentColumn.height + 24
+        anchors.margins: 16
+        contentHeight: contentColumn.height + 8
         clip: true
         boundsBehavior: Flickable.StopAtBounds
+        ScrollBar.vertical: ScrollBar {
+            policy: flickable.contentHeight > flickable.height ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
+            width: 6
+        }
 
         Column {
             id: contentColumn
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
-            spacing: 14
+            spacing: 12
 
             Item {
                 id: header
                 width: parent.width
-                height: 56
+                height: 44
 
                 RoundIconButton {
                     id: backButton
                     anchors.left: parent.left
-                    anchors.top: parent.top
-                    width: 40
-                    height: 40
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 38
+                    height: 38
                     label: "‹"
-                    tooltip: "Back"
                     onClicked: backClicked()
                 }
 
@@ -274,7 +277,7 @@ Item {
                     anchors.leftMargin: 12
                     anchors.right: parent.right
                     anchors.verticalCenter: backButton.verticalCenter
-                    height: 48
+                    height: 40
 
                     Text {
                         id: settingTitle
@@ -285,6 +288,18 @@ Item {
                         font.pixelSize: fontSizeTitle
                         font.bold: true
                         elide: Text.ElideRight
+                    }
+
+                    Text {
+                        id: savedHint
+                        anchors.right: statusRow.left
+                        anchors.rightMargin: 10
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "Saved ✓"
+                        color: accent
+                        font.pixelSize: fontSizeLabel
+                        opacity: 0
+                        Behavior on opacity { NumberAnimation { duration: 250 } }
                     }
 
                     Row {
@@ -299,9 +314,9 @@ Item {
                         }
 
                         StatusPill {
-                            label: selectedModel.length > 0 ? selectedModel : "NO MODEL"
+                            label: selectedModel.trim().length > 0 ? selectedModel.trim() : "NO MODEL"
                             dotColor: modelDetector.error !== "" ? root.error : accent
-                            width: Math.min(190, implicitWidth)
+                            width: Math.min(170, implicitWidth)
                         }
                     }
                 }
@@ -309,35 +324,29 @@ Item {
 
             SettingsCard {
                 title: "AI Provider"
+                subtitle: "Where translation requests are processed."
 
-                Row {
+                Column {
                     width: parent.width
-                    spacing: 10
+                    spacing: 6
 
-                    FieldLabel {
-                        id: providerLabel
-                        title: "Provider"
-                    }
+                    FieldLabel { text: "PROVIDER" }
 
                     ThemedComboBox {
                         id: providerCombo
-                        width: parent.width - providerLabel.width - 10
-                        model: ["OpenAI", "Ollama"]
+                        width: parent.width
+                        model: ["OpenAI / Compatible API", "Ollama (Local)"]
                         currentIndex: 0
 
-                        onCurrentIndexChanged: {
-                            if (!ready) {
-                                return
-                            }
+                        // onActivated 仅在用户交互时触发；reload() 的程序化赋值
+                        // 直接调用 applyProviderSettings，无需 ready 门控。
+                        onActivated: function(index) {
                             // Persist the outgoing provider's pending edits
-                            // while its fields are still in the inputs, then
-                            // swap in the new provider's values.
+                            // (including the model) while its fields are still
+                            // in the inputs, then swap in the new provider's values.
                             flushPendingSave()
-                            persistCurrentModel()
-                            ready = false
-                            selectedProvider = providerFromIndex(currentIndex)
+                            selectedProvider = providerFromIndex(index)
                             applyProviderSettings(selectedProvider)
-                            ready = true
                             saveConfig()
                             queueAutoDetectModels()
                         }
@@ -346,30 +355,57 @@ Item {
 
                 Column {
                     width: parent.width
-                    spacing: 7
-                    visible: true
-                    height: visible ? implicitHeight : 0
+                    spacing: 6
 
-                    Row {
+                    FieldLabel { text: "API SERVER" }
+
+                    TextField {
+                        id: serverInput
                         width: parent.width
-                        spacing: 10
-
-                        FieldLabel {
-                            id: serverLabel
-                            title: "API Server"
+                        height: controlHeight
+                        text: defaultOpenAiApiServer
+                        color: foreground
+                        font.pixelSize: fontSizeNormal
+                        leftPadding: 14
+                        rightPadding: 14
+                        verticalAlignment: TextInput.AlignVCenter
+                        onTextChanged: {
+                            if (ready) {
+                                saveConfigSoon()
+                                queueAutoDetectModels()
+                            }
                         }
 
+                        background: Rectangle {
+                            color: serverInput.activeFocus ? fieldColorFocus : fieldColor
+                            radius: root.radius
+                            border.width: 1
+                            border.color: serverInput.activeFocus ? borderActive : (serverInput.hovered ? Qt.alpha(root.accent, 0.55) : border)
+                            Behavior on color { ColorAnimation { duration: 160 } }
+                        }
+                    }
+                }
+
+                Column {
+                    width: parent.width
+                    spacing: 6
+                    visible: !isOllamaProvider
+
+                    FieldLabel { text: "API KEY" }
+
+                    Item {
+                        width: parent.width
+                        height: controlHeight
+
                         TextField {
-                            id: serverInput
-                            width: parent.width - serverLabel.width - 10
-                            height: 44
-                            text: defaultOpenAiApiServer
+                            id: keyInput
+                            anchors.fill: parent
+                            echoMode: keyToggle.show ? TextInput.Normal : TextInput.Password
+                            passwordCharacter: "•"
                             color: foreground
-                            placeholderText: defaultOpenAiApiServer
-                            placeholderTextColor: subtleForeground
                             font.pixelSize: fontSizeNormal
                             leftPadding: 14
-                            rightPadding: 14
+                            rightPadding: 54
                             verticalAlignment: TextInput.AlignVCenter
                             onTextChanged: {
                                 if (ready) {
@@ -379,151 +415,158 @@ Item {
                             }
 
                             background: Rectangle {
-                                color: serverInput.activeFocus ? "#152332" : fieldColor
+                                color: keyInput.activeFocus ? fieldColorFocus : fieldColor
                                 radius: root.radius
                                 border.width: 1
-                                border.color: serverInput.activeFocus ? borderActive : (serverInput.hovered ? Qt.rgba(0.39, 0.96, 0.84, 0.55) : border)
+                                border.color: keyInput.activeFocus ? borderActive : (keyInput.hovered ? Qt.alpha(root.accent, 0.55) : border)
                                 Behavior on color { ColorAnimation { duration: 160 } }
                             }
                         }
+
+                        Text {
+                            id: keyToggle
+                            property bool show: false
+                            anchors.right: parent.right
+                            anchors.rightMargin: 14
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: keyInput.text.length > 0
+                            text: show ? "Hide" : "Show"
+                            color: keyToggleArea.containsMouse ? accentHover : mutedForeground
+                            font.pixelSize: fontSizeSmall
+                            font.weight: Font.DemiBold
+
+                            MouseArea {
+                                id: keyToggleArea
+                                anchors.fill: parent
+                                anchors.margins: -6
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: keyToggle.show = !keyToggle.show
+                            }
+                        }
                     }
-                }
 
-                Column {
-                    width: parent.width
-                    spacing: 7
-                    visible: !isOllamaProvider
-                    height: visible ? implicitHeight : 0
-
-                    Row {
+                    Text {
                         width: parent.width
-                        spacing: 10
-
-                        FieldLabel {
-                            id: keyLabel
-                            title: "API Key"
-                        }
-
-                        ScrollView {
-                            id: keyScroll
-                            width: parent.width - keyLabel.width - 10
-                            height: 86
-                            clip: true
-                            contentWidth: availableWidth
-                            ScrollBar.vertical: ScrollBar {
-                                policy: keyInput.contentHeight > keyScroll.height ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
-                                width: 7
-                            }
-
-                            TextArea {
-                                id: keyInput
-                                width: keyScroll.availableWidth
-                                height: keyScroll.height
-                                color: foreground
-                                placeholderText: "sk-..."
-                                placeholderTextColor: subtleForeground
-                                font.pixelSize: fontSizeNormal
-                                wrapMode: Text.WrapAnywhere
-                                topPadding: 10
-                                bottomPadding: 10
-                                leftPadding: 14
-                                rightPadding: 14
-                                onTextChanged: {
-                                    if (ready) {
-                                        saveConfigSoon()
-                                        queueAutoDetectModels()
-                                    }
-                                }
-
-                                background: Rectangle {
-                                    color: keyInput.activeFocus ? "#152332" : fieldColor
-                                    radius: root.radius
-                                    border.width: 1
-                                    border.color: keyInput.activeFocus ? borderActive : (keyInput.hovered ? Qt.rgba(0.39, 0.96, 0.84, 0.55) : border)
-                                    Behavior on color { ColorAnimation { duration: 160 } }
-                                }
-                            }
-                        }
+                        readonly property string trimmedKey: keyInput.text.trim()
+                        visible: trimmedKey.length === 0 || !setting.hasPlausibleApiKey(trimmedKey)
+                        text: trimmedKey.length === 0
+                              ? "Required — paste the API key for your provider."
+                              : "This key doesn't look like a typical API key. Double-check it if requests fail."
+                        color: trimmedKey.length === 0 ? root.error : root.warning
+                        font.pixelSize: fontSizeLabel
+                        wrapMode: Text.WordWrap
                     }
                 }
             }
 
             SettingsCard {
-                title: "Model Router"
+                title: "Model"
+                subtitle: "Which model answers, and how its reasoning output is handled."
 
-                Row {
+                Column {
                     width: parent.width
-                    spacing: 10
+                    spacing: 6
 
-                    FieldLabel {
-                        id: modelLabel
-                        title: "Model"
-                    }
+                    FieldLabel { text: "MODEL" }
 
-                    Item {
-                        id: modelRow
-                        width: parent.width - modelLabel.width - 10
-                        height: 44
+                    Row {
+                        width: parent.width
+                        spacing: 8
 
-                        TextField {
-                            id: modelInput
-                            anchors.fill: parent
-                            text: selectedModel
-                            color: foreground
-                            placeholderText: modelDetector.availableModels.length > 0 ? "" : "Detect models first"
-                            placeholderTextColor: subtleForeground
-                            font.pixelSize: fontSizeNormal
-                            leftPadding: 14
-                            rightPadding: 100
-                            onTextChanged: {
-                                selectedModel = text.trim()
-                                if (ready) {
-                                    saveConfigSoon()
+                        Item {
+                            id: modelRow
+                            width: parent.width - detectButton.width - 8
+                            height: controlHeight
+
+                            TextField {
+                                id: modelInput
+                                anchors.fill: parent
+                                // selectedModel 是此 text 属性的别名（唯一数据源）。
+                                color: foreground
+                                font.pixelSize: fontSizeNormal
+                                leftPadding: 14
+                                rightPadding: 34
+                                onTextChanged: {
+                                    if (ready) {
+                                        saveConfigSoon()
+                                    }
+                                }
+
+                                background: Rectangle {
+                                    color: modelInput.activeFocus || modelPopup.opened ? fieldColorFocus : fieldColor
+                                    radius: root.radius
+                                    border.width: 1
+                                    border.color: modelPopup.opened ? borderActive : (modelInput.hovered || modelInput.activeFocus ? Qt.alpha(root.accent, 0.55) : border)
+                                    Behavior on color { ColorAnimation { duration: 160 } }
+                                }
+
+                                // 自绘占位提示：Material 风格的 placeholderText 会浮动到
+                                // 控件上方，与本页自带的 FieldLabel 重复且视觉断裂。
+                                Text {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.leftMargin: 14
+                                    anchors.rightMargin: 34
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    visible: modelInput.text.length === 0 && !modelInput.activeFocus
+                                    text: modelDetector.availableModels.length > 0
+                                          ? "Select from the list, or type a name"
+                                          : "Type a model name, or detect from the server"
+                                    color: subtleForeground
+                                    font.pixelSize: fontSizeNormal
+                                    elide: Text.ElideRight
                                 }
                             }
 
-                            background: Rectangle {
-                                color: modelInput.activeFocus || modelPopup.opened ? "#152332" : fieldColor
-                                radius: root.radius
-                                border.width: 1
-                                border.color: modelPopup.opened ? borderActive : (modelInput.hovered || modelInput.activeFocus ? Qt.rgba(0.39, 0.96, 0.84, 0.55) : border)
-                                Behavior on color { ColorAnimation { duration: 160 } }
+                            Text {
+                                id: modelDropdownArrow
+                                anchors.right: parent.right
+                                anchors.rightMargin: 12
+                                anchors.verticalCenter: parent.verticalCenter
+                                visible: modelDetector.availableModels.length > 0
+                                text: modelPopup.opened ? "▴" : "▾"
+                                color: modelPopup.opened || modelArrowArea.containsMouse ? accentHover : mutedForeground
+                                font.pixelSize: fontSizeNormal
+
+                                MouseArea {
+                                    id: modelArrowArea
+                                    anchors.fill: parent
+                                    anchors.margins: -8
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: modelPopup.opened ? modelPopup.close() : modelPopup.open()
+                                }
                             }
                         }
 
                         Rectangle {
-                            id: modelActionBtn
-                            anchors.right: parent.right
-                            anchors.top: parent.top
-                            anchors.bottom: parent.bottom
+                            id: detectButton
                             width: 92
+                            height: controlHeight
                             radius: root.radius
-                            color: modelActionArea.containsMouse ? accentHover : accent
+                            color: detectArea.containsMouse && !modelDetector.isDetecting ? accentHover : accent
+                            opacity: modelDetector.isDetecting ? 0.65 : 1.0
                             border.width: 1
                             border.color: Qt.rgba(1, 1, 1, 0.18)
 
                             Text {
                                 anchors.centerIn: parent
                                 text: modelDetector.isDetecting ? "Scanning"
-                                      : modelPopup.opened ? "▴"
-                                      : modelDetector.availableModels.length > 0 ? "Select ▾"
+                                      : modelDetector.availableModels.length > 0 ? "Refresh"
                                       : "Detect"
                                 color: "#061014"
-                                font.pixelSize: fontSizeNormal
+                                font.pixelSize: fontSizeSmall
                                 font.weight: Font.DemiBold
                             }
 
                             MouseArea {
-                                id: modelActionArea
+                                id: detectArea
                                 anchors.fill: parent
                                 hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
+                                cursorShape: modelDetector.isDetecting ? Qt.ArrowCursor : Qt.PointingHandCursor
                                 onClicked: {
-                                    if (modelPopup.opened) {
-                                        modelPopup.close()
-                                    } else if (modelDetector.availableModels.length > 0) {
-                                        modelPopup.open()
-                                    } else if (!modelDetector.isDetecting) {
+                                    if (!modelDetector.isDetecting) {
                                         openModelPopupAfterDetect = true
                                         detectModels()
                                     }
@@ -533,19 +576,16 @@ Item {
                     }
                 }
 
-                Row {
+                Column {
                     width: parent.width
-                    spacing: 10
+                    spacing: 6
 
-                    FieldLabel {
-                        id: thinkingLabel
-                        title: "Thinking"
-                    }
+                    FieldLabel { text: "THINKING" }
 
                     ThemedComboBox {
                         id: thinkingCombo
-                        width: parent.width - thinkingLabel.width - 10
-                        model: ["Auto (detect by model)", "Qwen3 (thinking)", "DeepSeek", "OpenAI o-series", "Ollama", "Manual (none)"]
+                        width: parent.width
+                        model: ["Auto (recommended)", "Qwen3", "DeepSeek", "OpenAI o-series", "Ollama", "None (manual)"]
                         currentIndex: thinkingIndex(setting.thinkingMode)
 
                         onActivated: {
@@ -555,17 +595,15 @@ Item {
                             }
                         }
                     }
-                }
 
-                Text {
-                    width: parent.width
-                    leftPadding: thinkingLabel.width + 10
-                    text: "Auto detects the model family from its name. If your model id is a relay alias (e.g. LocalModel on NewAPI), pick the family of the real model — Qwen3 thinking models are sent enable_thinking=false plus the /no_think tag so answers come without reasoning steps."
-                    color: subtleForeground
-                    font.pixelSize: 15
-                    wrapMode: Text.WordWrap
-                    maximumLineCount: 3
-                    elide: Text.ElideRight
+                    Text {
+                        width: parent.width
+                        text: "Auto picks the right settings from the model name. If you access models through a relay that renames them, choose the family of the real model."
+                        color: subtleForeground
+                        font.pixelSize: fontSizeLabel
+                        wrapMode: Text.WordWrap
+                        lineHeight: 1.25
+                    }
                 }
 
                 Popup {
@@ -586,12 +624,12 @@ Item {
 
                         delegate: ItemDelegate {
                             width: modelList.width
-                            height: 38
+                            height: 34
                             hoverEnabled: true
 
                             contentItem: Text {
                                 text: modelData
-                                color: selectedModel === modelData ? accent : foreground
+                                color: selectedModel.trim() === modelData ? accent : foreground
                                 font.pixelSize: fontSizeNormal
                                 verticalAlignment: Text.AlignVCenter
                                 elide: Text.ElideRight
@@ -600,7 +638,7 @@ Item {
                             }
 
                             background: Rectangle {
-                                color: hovered ? "#1A2A3A" : panelColorAlt
+                                color: hovered ? rowHighlightColor : panelColorAlt
                             }
 
                             onClicked: {
@@ -621,24 +659,27 @@ Item {
 
                 Rectangle {
                     width: parent.width
-                    height: modelDetectTip.visible ? 34 : 0
+                    height: modelDetectTip.visible ? modelDetectTip.implicitHeight + 18 : 0
                     visible: modelDetectTip.text.length > 0
                     radius: 10
-                    color: modelDetector.error !== "" ? Qt.rgba(1.0, 0.48, 0.56, 0.10) : Qt.rgba(0.39, 0.96, 0.84, 0.09)
+                    color: modelDetector.error !== "" ? Qt.alpha(root.error, 0.10) : Qt.alpha(root.accent, 0.09)
                     border.width: 1
-                    border.color: modelDetector.error !== "" ? Qt.rgba(1.0, 0.48, 0.56, 0.35) : Qt.rgba(0.39, 0.96, 0.84, 0.28)
+                    border.color: modelDetector.error !== "" ? Qt.alpha(root.error, 0.35) : Qt.alpha(root.accent, 0.28)
+                    Behavior on height { NumberAnimation { duration: 140 } }
 
                     Text {
                         id: modelDetectTip
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
-                        anchors.leftMargin: 12
-                        anchors.rightMargin: 12
+                        anchors.leftMargin: 10
+                        anchors.rightMargin: 10
                         text: modelDetector.error !== "" ? modelDetector.error
-                                                                      : (modelDetector.availableModels.length > 0 ? (modelDetector.availableModels.length + " models detected · click Select to choose") : "")
+                              : (modelDetector.availableModels.length > 0 ? (modelDetector.availableModels.length + " models detected — pick one from the dropdown.") : "")
                         color: modelDetector.error !== "" ? root.error : mutedForeground
                         font.pixelSize: fontSizeSmall
+                        wrapMode: Text.WordWrap
+                        maximumLineCount: 2
                         elide: Text.ElideRight
                     }
                 }
@@ -646,21 +687,48 @@ Item {
 
             SettingsCard {
                 title: "Global Hotkey"
+                subtitle: "Translate the current selection from any app."
+
+                Rectangle {
+                    width: parent.width
+                    visible: !root.hotkeysSupported
+                    height: visible ? waylandTip.implicitHeight + 18 : 0
+                    radius: 10
+                    color: Qt.alpha(root.infoText, 0.08)
+                    border.width: 1
+                    border.color: Qt.alpha(root.infoText, 0.25)
+
+                    Text {
+                        id: waylandTip
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: 10
+                        anchors.rightMargin: 10
+                        text: "Global hotkeys aren't available on Wayland. Instead, bind a shortcut in your desktop settings to run: TransAI --translate-selection"
+                        color: root.infoText
+                        font.pixelSize: fontSizeLabel
+                        wrapMode: Text.WordWrap
+                        lineHeight: 1.25
+                    }
+                }
 
                 Rectangle {
                     id: shortcutRect
                     width: parent.width
                     height: 52
-                    color: activeFocus ? "#152332" : fieldColor
+                    color: activeFocus ? fieldColorFocus : fieldColor
                     radius: root.radius
                     border.width: 1
                     border.color: activeFocus ? borderActive : border
+                    opacity: root.hotkeysSupported ? 1.0 : 0.5
                     focus: false
 
                     onActiveFocusChanged: {
                         if (activeFocus) {
                             shortcutBeforeRecording = shortcutText.text
                             shortcutRecordingAccepted = false
+                            hotkeyError = ""
                             if (shortcutBeforeRecording.length > 0 && shortcutRegistrar !== null) {
                                 shortcutRegistrar.setShortcut("")
                             }
@@ -671,52 +739,62 @@ Item {
 
                     Behavior on color { ColorAnimation { duration: 160 } }
 
+                    // 快捷键的唯一数据源；显示由下方键帽 chips 负责，本体不可见。
+                    Text {
+                        id: shortcutText
+                        visible: false
+                        text: ""
+                        onTextChanged: saveConfigSoon()
+                    }
+
                     Row {
-                        anchors.fill: parent
-                        anchors.leftMargin: 14
-                        anchors.rightMargin: 14
-                        spacing: 10
+                        id: chipRow
+                        anchors.left: parent.left
+                        anchors.leftMargin: 12
+                        anchors.right: parent.right
+                        anchors.rightMargin: shortcutRect.activeFocus ? 92 : (clearButton.visible ? 40 : 12)
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 6
+                        clip: true
 
-                        Rectangle {
-                            width: 24
-                            height: 24
-                            radius: 12
-                            anchors.verticalCenter: parent.verticalCenter
-                            color: shortcutRect.activeFocus ? Qt.rgba(0.39, 0.96, 0.84, 0.18) : Qt.rgba(0.54, 0.64, 0.70, 0.12)
-                            border.width: 1
-                            border.color: shortcutRect.activeFocus ? accent : border
+                        Repeater {
+                            model: !shortcutRect.activeFocus && shortcutText.text.length > 0 ? shortcutText.text.split("+") : []
 
-                            Text {
-                                anchors.centerIn: parent
-                                text: "⌘"
-                                color: shortcutRect.activeFocus ? accent : mutedForeground
-                                font.pixelSize: 22
+                            delegate: Rectangle {
+                                height: 30
+                                width: chipText.implicitWidth + 20
+                                radius: 8
+                                color: fieldColorFocus
+                                border.width: 1
+                                border.color: Qt.alpha(root.accent, 0.35)
+
+                                Text {
+                                    id: chipText
+                                    anchors.centerIn: parent
+                                    text: modelData
+                                    color: foreground
+                                    font.pixelSize: fontSizeSmall
+                                    font.weight: Font.DemiBold
+                                }
                             }
                         }
 
                         Text {
-                            id: shortcutText
-                            width: parent.width - 34
+                            visible: shortcutText.text.length === 0 && !shortcutRect.activeFocus
+                            text: root.hotkeysSupported ? "Click to record a shortcut" : "Unavailable on this platform"
+                            color: subtleForeground
+                            font.pixelSize: fontSizeSmall
                             anchors.verticalCenter: parent.verticalCenter
-                            text: ""
-                            color: text.length > 0 ? foreground : subtleForeground
-                            font.pixelSize: fontSizeNormal
-                            font.weight: Font.DemiBold
-                            textFormat: Text.PlainText
-                            elide: Text.ElideRight
-                            verticalAlignment: Text.AlignVCenter
-                            onTextChanged: saveConfig()
                         }
-                    }
 
-                    Text {
-                        anchors.right: parent.right
-                        anchors.rightMargin: 14
-                        anchors.verticalCenter: parent.verticalCenter
-                        visible: shortcutText.text.length === 0 && !shortcutRect.activeFocus
-                        text: "Click to record"
-                        color: subtleForeground
-                        font.pixelSize: fontSizeSmall
+                        Text {
+                            visible: shortcutRect.activeFocus
+                            text: "Press keys…"
+                            color: accent
+                            font.pixelSize: fontSizeSmall
+                            font.weight: Font.DemiBold
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
                     }
 
                     Text {
@@ -724,9 +802,9 @@ Item {
                         anchors.rightMargin: 14
                         anchors.verticalCenter: parent.verticalCenter
                         visible: shortcutRect.activeFocus
-                        text: "Press keys..."
-                        color: accent
-                        font.pixelSize: fontSizeSmall
+                        text: "Esc to cancel"
+                        color: subtleForeground
+                        font.pixelSize: fontSizeLabel
                     }
 
                     Keys.onPressed: (event) => {
@@ -743,6 +821,7 @@ Item {
                         var shortcut = shortcutFromEvent(event)
                         if (shortcut.length > 0) {
                             if (shortcutRegistrar !== null && shortcutRegistrar.setShortcut(shortcut) === false) {
+                                hotkeyError = "Couldn't register '" + shortcut + "'. It may be reserved by the system or another app."
                                 if (shortcutBeforeRecording.length > 0) {
                                     shortcutRegistrar.setShortcut(shortcutBeforeRecording)
                                 }
@@ -751,6 +830,7 @@ Item {
                                 return
                             }
                             shortcutRecordingAccepted = true
+                            hotkeyError = ""
                             shortcutText.text = shortcut
                             shortcutRect.focus = false
                         }
@@ -759,9 +839,60 @@ Item {
 
                     MouseArea {
                         anchors.fill: parent
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: shortcutRect.forceActiveFocus()
+                        cursorShape: root.hotkeysSupported ? Qt.PointingHandCursor : Qt.ArrowCursor
+                        onClicked: {
+                            if (root.hotkeysSupported) {
+                                shortcutRect.forceActiveFocus()
+                            }
+                        }
                     }
+
+                    Text {
+                        id: clearButton
+                        anchors.right: parent.right
+                        anchors.rightMargin: 13
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: root.hotkeysSupported && !shortcutRect.activeFocus && shortcutText.text.length > 0
+                        text: "✕"
+                        color: clearArea.containsMouse ? root.error : mutedForeground
+                        font.pixelSize: fontSizeNormal
+
+                        MouseArea {
+                            id: clearArea
+                            anchors.fill: parent
+                            anchors.margins: -8
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                if (shortcutRegistrar !== null) {
+                                    shortcutRegistrar.setShortcut("")
+                                }
+                                hotkeyError = ""
+                                // onTextChanged 触发 saveConfigSoon，无需手动保存
+                                shortcutText.text = ""
+                            }
+                        }
+                    }
+                }
+
+                Text {
+                    width: parent.width
+                    visible: root.hotkeysSupported && root.hotkeyError.length === 0
+                    text: "Works system-wide: press it in any app to translate the currently selected text."
+                    color: subtleForeground
+                    font.pixelSize: fontSizeLabel
+                    wrapMode: Text.WordWrap
+                    lineHeight: 1.25
+                }
+
+                Text {
+                    width: parent.width
+                    visible: root.hotkeysSupported && root.hotkeyError.length > 0
+                    text: root.hotkeyError
+                    color: root.error
+                    font.pixelSize: fontSizeLabel
+                    wrapMode: Text.WordWrap
+                    lineHeight: 1.25
                 }
             }
 
@@ -791,6 +922,13 @@ Item {
     }
 
     Timer {
+        id: savedTimer
+        interval: 1400
+        repeat: false
+        onTriggered: savedHint.opacity = 0
+    }
+
+    Timer {
         id: autoDetectTimer
         interval: 700
         repeat: false
@@ -807,11 +945,11 @@ Item {
 
     component SettingsCard: Rectangle {
         width: parent ? parent.width : 0
-        height: cardColumn.height + 28
+        height: cardColumn.height + 32
         radius: root.radiusLarge
-        color: Qt.rgba(0.07, 0.11, 0.16, 0.82)
+        color: root.cardColor
         border.width: 1
-        border.color: Qt.rgba(0.39, 0.96, 0.84, 0.14)
+        border.color: Qt.alpha(root.accent, 0.14)
 
         Rectangle {
             anchors.fill: parent
@@ -824,24 +962,25 @@ Item {
 
         default property alias contentData: bodyColumn.data
         property string title: ""
+        property string subtitle: ""
 
         Column {
             id: cardColumn
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
-            anchors.margins: 14
-            spacing: 14
+            anchors.margins: 16
+            spacing: 12
 
             Row {
                 width: parent.width
-                height: Math.max(38, titleColumn.implicitHeight)
+                height: Math.max(24, titleColumn.implicitHeight)
                 spacing: 10
 
                 Rectangle {
-                    width: 4
-                    height: 32
-                    radius: 2
+                    width: 3
+                    height: Math.max(18, titleColumn.implicitHeight)
+                    radius: 1.5
                     anchors.verticalCenter: parent.verticalCenter
                     gradient: Gradient {
                         GradientStop { position: 0.0; color: accentHover }
@@ -851,9 +990,9 @@ Item {
 
                 Column {
                     id: titleColumn
-                    width: parent.width - 14
+                    width: parent.width - 13
                     anchors.verticalCenter: parent.verticalCenter
-                    spacing: 2
+                    spacing: 3
 
                     Text {
                         width: parent.width
@@ -864,13 +1003,21 @@ Item {
                         elide: Text.ElideRight
                     }
 
+                    Text {
+                        width: parent.width
+                        visible: subtitle.length > 0
+                        text: subtitle
+                        color: subtleForeground
+                        font.pixelSize: fontSizeLabel
+                        wrapMode: Text.WordWrap
+                    }
                 }
             }
 
             Column {
                 id: bodyColumn
                 width: parent.width
-                spacing: 10
+                spacing: 12
             }
         }
     }
@@ -878,7 +1025,6 @@ Item {
     component RoundIconButton: Button {
         id: control
         property string label: ""
-        property string tooltip: ""
         hoverEnabled: true
         scale: down ? 0.94 : 1.0
 
@@ -895,7 +1041,7 @@ Item {
         contentItem: Text {
             text: control.label
             color: control.hovered ? accentHover : foreground
-            font.pixelSize: 28
+            font.pixelSize: 24
             font.weight: Font.Light
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
@@ -905,20 +1051,21 @@ Item {
     component StatusPill: Rectangle {
         property string label: ""
         property color dotColor: accent
-        implicitWidth: pillText.implicitWidth + 30
+        // 宽度留 5px 余量：Text implicitWidth 与可用宽度完全相等时会触发 elide
+        implicitWidth: pillText.implicitWidth + 32
         width: implicitWidth
-        height: 24
-        radius: 12
+        height: 22
+        radius: 11
         color: Qt.rgba(1, 1, 1, 0.055)
         border.width: 1
         border.color: Qt.rgba(1, 1, 1, 0.08)
 
         Rectangle {
-            width: 7
-            height: 7
-            radius: 4
+            width: 6
+            height: 6
+            radius: 3
             anchors.left: parent.left
-            anchors.leftMargin: 10
+            anchors.leftMargin: 9
             anchors.verticalCenter: parent.verticalCenter
             color: dotColor
         }
@@ -926,46 +1073,22 @@ Item {
         Text {
             id: pillText
             anchors.left: parent.left
-            anchors.leftMargin: 21
+            anchors.leftMargin: 19
             anchors.right: parent.right
-            anchors.rightMargin: 9
+            anchors.rightMargin: 8
             anchors.verticalCenter: parent.verticalCenter
             text: label
             color: mutedForeground
-            font.pixelSize: 15
+            font.pixelSize: fontSizeLabel
             font.weight: Font.DemiBold
             elide: Text.ElideRight
         }
     }
 
-    component FieldLabel: Rectangle {
-        property string title: ""
-        width: 110
-        implicitWidth: 110
-        height: 44
-        color: "transparent"
-
-        Text {
-            id: labelText
-            anchors.left: parent.left
-            anchors.verticalCenter: parent.verticalCenter
-            color: mutedForeground
-            text: title
-            width: 92
-            elide: Text.ElideRight
-            font.pixelSize: fontSizeNormal
-            font.weight: Font.DemiBold
-            verticalAlignment: Text.AlignVCenter
-        }
-
-        Rectangle {
-            id: accentBar
-            width: 4
-            height: 12
-            radius: 2
-            color: accent
-            x: 98
-            anchors.verticalCenter: parent.verticalCenter
-        }
+    component FieldLabel: Text {
+        color: mutedForeground
+        font.pixelSize: fontSizeLabel
+        font.weight: Font.DemiBold
+        font.letterSpacing: 1.0
     }
 }
