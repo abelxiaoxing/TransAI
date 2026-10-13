@@ -16,6 +16,16 @@ GlobalShortcutManager::~GlobalShortcutManager()
     }
 }
 
+bool GlobalShortcutManager::platformSupportsHotkeys()
+{
+    // Global hotkeys are unavailable on Wayland; QHotkey's X11 backend also
+    // crashes under headless platforms (offscreen/minimal), so refuse there
+    // too. Real sessions report xcb / windows / cocoa.
+    const QString platform = QGuiApplication::platformName().toLower();
+    return !(platform == QLatin1String("wayland") || platform == QLatin1String("offscreen")
+             || platform == QLatin1String("minimal") || platform == QLatin1String("dummy"));
+}
+
 bool GlobalShortcutManager::registerShortcut(const QString& actionId, const QString& sequence)
 {
     const QKeySequence keySequence(sequence);
@@ -28,13 +38,9 @@ bool GlobalShortcutManager::registerShortcut(const QString& actionId, const QStr
         return false;
     }
 
-    // Global hotkeys are unavailable on Wayland; QHotkey's X11 backend also
-    // crashes under headless platforms (offscreen/minimal), so refuse there
-    // too. Real sessions report xcb / windows / cocoa.
-    const QString platform = QGuiApplication::platformName().toLower();
-    if (platform == QLatin1String("wayland") || platform == QLatin1String("offscreen")
-        || platform == QLatin1String("minimal") || platform == QLatin1String("dummy")) {
-        emit shortcutRegisterFailed(actionId, QString("Global hotkeys are not available on %1").arg(platform));
+    if (!platformSupportsHotkeys()) {
+        emit shortcutRegisterFailed(actionId,
+                                    QString("Global hotkeys are not available on %1").arg(QGuiApplication::platformName()));
         return false;
     }
 

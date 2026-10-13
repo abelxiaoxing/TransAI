@@ -83,9 +83,12 @@ ThinkingPolicy ThinkingPolicyBuilder::build(const QString& provider, const QStri
 {
     ThinkingPolicy policy;
 
-    const QString modeKey = mode.trimmed().toLower();
+    // normalizeThinkingMode is the single validation point for mode strings
+    // crossing the config/QVariantMap boundaries; build() relies on it so raw
+    // input ("none", empty, casing) gets the same mapping everywhere.
+    const QString modeKey = normalizeThinkingMode(mode);
     // Manual mode: send the request untouched.
-    if (modeKey == QLatin1String("manual") || modeKey == QLatin1String("none") || modeKey.isEmpty()) {
+    if (modeKey == QLatin1String("manual")) {
         return policy;
     }
 

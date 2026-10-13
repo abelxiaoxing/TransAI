@@ -33,7 +33,7 @@ void stripKnownSuffix(QString& path, std::initializer_list<const char*> suffixes
 
 } // namespace
 
-QUrl ProviderEndpointBuilder::buildChatCompletionUrl(const QString& apiServer, const QString& provider) const
+QUrl ProviderEndpointBuilder::buildChatCompletionUrl(const QString& apiServer, const QString& provider)
 {
     const QString normalizedProvider = ProviderDefaults::normalizedProviderName(provider);
     QUrl url = requestUrl(apiServer, ProviderDefaults::defaultApiServerForProvider(normalizedProvider));
@@ -69,7 +69,7 @@ QUrl ProviderEndpointBuilder::buildChatCompletionUrl(const QString& apiServer, c
     return url;
 }
 
-QUrl ProviderEndpointBuilder::buildModelListUrl(const QString& apiServer, const QString& provider) const
+QUrl ProviderEndpointBuilder::buildModelListUrl(const QString& apiServer, const QString& provider)
 {
     const QString normalizedProvider = ProviderDefaults::normalizedProviderName(provider);
     QUrl url = requestUrl(apiServer, ProviderDefaults::defaultApiServerForProvider(normalizedProvider));

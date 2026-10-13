@@ -16,12 +16,18 @@ public:
     void reset();
     StreamParseResult appendChunk(const QByteArray& data);
     StreamParseResult flush();
+    // Consumes the closing chunk of a stream: parses `data` and then flushes
+    // the buffered tail, merging both into one result. Equivalent to calling
+    // appendChunk(data) followed by flush() and combining the results.
+    StreamParseResult consume(const QByteArray& data);
 
 private:
-    QByteArray m_buffer;
+    static void mergeInto(StreamParseResult& target, const StreamParseResult& extra);
     StreamParseResult parseEvent(const QByteArray& event) const;
     StreamParseResult parseEventPayload(const QByteArray& payload) const;
     QByteArray takeNextEvent();
+
+    QByteArray m_buffer;
 };
 
 #endif // STREAM_PARSER_H

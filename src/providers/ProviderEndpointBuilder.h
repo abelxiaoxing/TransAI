@@ -7,8 +7,10 @@
 class ProviderEndpointBuilder
 {
 public:
-    QUrl buildChatCompletionUrl(const QString& apiServer, const QString& provider = QString()) const;
-    QUrl buildModelListUrl(const QString& apiServer, const QString& provider) const;
+    // Stateless helpers (static for parity with ThinkingPolicyBuilder);
+    // there is no reason to instantiate this class.
+    static QUrl buildChatCompletionUrl(const QString& apiServer, const QString& provider);
+    static QUrl buildModelListUrl(const QString& apiServer, const QString& provider);
 };
 
 #endif // PROVIDER_ENDPOINT_BUILDER_H

@@ -38,7 +38,7 @@ endif()
 
 
 set(HEADERS
-    src/stdafx.h
+    src/PropertyMacros.h
     src/app/ApplicationCommandServer.h
     src/settings/Setting.h
     src/translation/TranslationRequest.h
@@ -46,6 +46,7 @@ set(HEADERS
     src/translation/StreamParser.h
     src/translation/TranslationService.h
     src/providers/ProviderDefaults.h
+    src/providers/ApiError.h
     src/providers/ProviderEndpointBuilder.h
     src/providers/ModelDiscoveryService.h
     src/providers/ThinkingPolicy.h

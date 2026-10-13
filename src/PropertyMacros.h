@@ -2,8 +2,8 @@
 #pragma execution_character_set("utf-8")
 #endif
 
-#ifndef STDAFX_H
-#define STDAFX_H
+#ifndef PROPERTYMACROS_H
+#define PROPERTYMACROS_H
 
 #define Q_PROPERTY_AUTO(TYPE, M)                                                                                       \
   Q_PROPERTY(TYPE M MEMBER _##M NOTIFY M##Changed)                                                                     \
@@ -25,4 +25,4 @@ public:                                                                         
 private:                                                                                                               \
   TYPE _##M;
 
-#endif  // STDAFX_H
+#endif  // PROPERTYMACROS_H

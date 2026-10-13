@@ -18,7 +18,7 @@ QString effectiveTargetLanguage(const QString& targetLanguage)
 }
 } // namespace
 
-QJsonArray PromptBuilder::buildMessages(const TranslationRequest& request, const ThinkingPolicy& policy) const
+QJsonArray PromptBuilder::buildMessages(const TranslationRequest& request, const ThinkingPolicy& policy)
 {
     QJsonArray messages;
     const QString targetLanguage = effectiveTargetLanguage(request.targetLanguage);
@@ -73,7 +73,7 @@ QJsonArray PromptBuilder::buildMessages(const TranslationRequest& request, const
     return messages;
 }
 
-QJsonObject PromptBuilder::createMessage(const QString& role, const QString& content) const
+QJsonObject PromptBuilder::createMessage(const QString& role, const QString& content)
 {
     QJsonObject message;
     message.insert("role", role);

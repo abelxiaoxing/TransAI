@@ -2,7 +2,6 @@
 
 #include <QClipboard>
 #include <QGuiApplication>
-#include <QPointer>
 #include <QProcess>
 #include <QStandardPaths>
 #include <QTimer>
@@ -125,17 +124,13 @@ void SelectionTextProvider::requestSelectedTextBySimulatedCopy()
         return;
     }
 
-    QPointer<ClipboardGuard> guardedClipboard(guard);
-    QTimer::singleShot(300, this, [this, guardedClipboard, marker]() {
-        if (!guardedClipboard) {
-            emit selectedTextFailed("Clipboard guard was destroyed");
-            return;
-        }
-
-        const QString copiedText = guardedClipboard->currentText();
+    // guard is parented to this, and this is also the singleShot context
+    // object, so guard always outlives the callback; no lifetime guard needed.
+    QTimer::singleShot(300, this, [this, guard, marker]() {
+        const QString copiedText = guard->currentText();
         const bool clipboardChanged = copiedText != marker;
-        guardedClipboard->restore();
-        guardedClipboard->deleteLater();
+        guard->restore();
+        guard->deleteLater();
 
         if (!clipboardChanged) {
             emit selectedTextFailed("Clipboard did not change after copy");

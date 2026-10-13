@@ -95,36 +95,33 @@ void TranslationService::translate(const TranslationRequest& request)
     setResponseError("");
     setResponseData("");
 
+    // cancelCurrentRequest() above already reset isRequesting, so the
+    // validation failures below only record the error and emit the terminal
+    // signal.
     if (normalizedRequest.text.trimmed().isEmpty()) {
-        setIsRequesting(false);
         setResponseError("Please enter text to translate");
         emit translationFailed(m_responseError);
         return;
     }
 
     if (normalizedRequest.model.trimmed().isEmpty()) {
-        setIsRequesting(false);
         setResponseError("Please select a model");
         emit translationFailed(m_responseError);
         return;
     }
 
     if (normalizedRequest.provider != "ollama" && !ProviderDefaults::isPlausibleApiKey(normalizedRequest.apiKey)) {
-        setIsRequesting(false);
         setResponseError(ProviderDefaults::apiKeyErrorMessage());
         emit translationFailed(m_responseError);
         return;
     }
 
-    ProviderEndpointBuilder endpointBuilder;
-    QNetworkRequest networkRequest(endpointBuilder.buildChatCompletionUrl(normalizedRequest.apiServer, normalizedRequest.provider));
+    QNetworkRequest networkRequest(ProviderEndpointBuilder::buildChatCompletionUrl(normalizedRequest.apiServer, normalizedRequest.provider));
     networkRequest.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     networkRequest.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork);
     if (normalizedRequest.provider != "ollama") {
         networkRequest.setRawHeader("Authorization", QString("Bearer %1").arg(normalizedRequest.apiKey.trimmed()).toUtf8());
     }
-
-    PromptBuilder promptBuilder;
 
     // Decide how to suppress/minimize model thinking for this endpoint/model
     // (e.g. thinking.type=disabled for DeepSeek chat, enable_thinking=false
@@ -143,7 +140,7 @@ void TranslationService::translate(const TranslationRequest& request)
     for (auto it = thinkingPolicy.bodyParams.constBegin(); it != thinkingPolicy.bodyParams.constEnd(); ++it) {
         requestData.insert(it.key(), it.value());
     }
-    requestData.insert("messages", promptBuilder.buildMessages(normalizedRequest, thinkingPolicy));
+    requestData.insert("messages", PromptBuilder::buildMessages(normalizedRequest, thinkingPolicy));
 
     m_streamParser.reset();
     setIsRequesting(true);
@@ -160,15 +157,8 @@ void TranslationService::translate(const TranslationRequest& request)
             return;
         }
 
-        StreamParseResult result = m_streamParser.appendChunk(currentReply->readAll());
-        const StreamParseResult finalResult = m_streamParser.flush();
-        result.content += finalResult.content;
-        if (finalResult.hasError) {
-            result.hasError = true;
-            if (!finalResult.errorMessage.isEmpty()) {
-                result.errorMessage = finalResult.errorMessage;
-            }
-        }
+        // Final read plus the buffered tail, merged into a single result.
+        const StreamParseResult result = m_streamParser.consume(currentReply->readAll());
 
         if (!result.content.isEmpty()) {
             setResponseData(m_responseData + result.content);

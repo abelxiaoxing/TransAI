@@ -13,10 +13,15 @@
 class GlobalShortcutManager : public QObject
 {
     Q_OBJECT
+    // False on Wayland/headless platforms where QHotkey cannot work; the
+    // settings UI uses this to explain why hotkey recording is unavailable.
+    Q_PROPERTY(bool hotkeysSupported READ hotkeysSupported CONSTANT)
 
 public:
     explicit GlobalShortcutManager(QObject* parent = nullptr);
     ~GlobalShortcutManager() override;
+
+    bool hotkeysSupported() const { return platformSupportsHotkeys(); }
 
     Q_INVOKABLE bool registerShortcut(const QString& actionId, const QString& sequence);
     Q_INVOKABLE void unregisterShortcut(const QString& actionId);
@@ -26,6 +31,8 @@ signals:
     void shortcutRegisterFailed(QString actionId, QString reason);
 
 private:
+    static bool platformSupportsHotkeys();
+
     QHash<QString, QHotkey*> m_hotkeys;
 };
 

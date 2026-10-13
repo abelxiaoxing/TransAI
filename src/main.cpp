@@ -54,6 +54,9 @@ int main(int argc, char *argv[])
 
     const bool translateSelection = commandLine.isSet(translateSelectionOption);
     const bool startHidden = translateSelection || commandLine.isSet(backgroundOption);
+    // A second --background launch forwards "noop", which the running instance
+    // simply swallows (its only purpose is to prove the socket is alive); a
+    // plain launch forwards "show" to raise the existing window.
     const QString forwardedCommand = translateSelection ? "translate-selection" : (startHidden ? "noop" : "show");
 
     if (ApplicationCommandServer::sendCommandToRunningInstance(forwardedCommand)) {

@@ -81,15 +81,13 @@ bool ensureConfigDirExists(const QString& configPath)
 Setting::Setting(QObject* parent)
     : QObject(parent)
 {
+    // QString members default to empty; only the non-empty defaults need to
+    // be spelled out here.
     _openaiApiServer = ProviderDefaults::openAiApiServer();
-    _openaiApiKey = "";
     _openaiModel = ProviderDefaults::openAiDefaultModel();
     _ollamaApiServer = ProviderDefaults::ollamaApiServer();
-    _ollamaModel = "";
-    _shortCut = "";
     _provider = "openai";
     _thinkingMode = "auto";
-    applyActiveProviderConfig();
 
     m_configPath = resolveConfigPath();
     if (m_configPath.isEmpty()) {
@@ -139,10 +137,7 @@ bool Setting::loadConfig()
     const QString legacyApiKey = obj.value(kApiKeyKey).toString();
     const QString legacyModel = obj.value(kModelKey).toString();
 
-    _provider = obj.value(kProviderKey).toString("openai");
-    if (_provider != "openai" && _provider != "ollama") {
-        _provider = "openai";
-    }
+    _provider = ProviderDefaults::normalizedProviderName(obj.value(kProviderKey).toString("openai"));
 
     // "Key present but empty" is preserved as empty (the derived active view
     // falls back to the default); "key absent" migrates from the legacy
@@ -182,7 +177,6 @@ bool Setting::loadConfig()
         emit thinkingModeChanged();
     }
 
-    applyActiveProviderConfig();
     return true;
 }
 
@@ -190,36 +184,10 @@ void Setting::applyProviderConfig(QString provider)
 {
     const QString normalized = ProviderDefaults::normalizedProviderName(provider);
     if (_provider == normalized) {
-        applyActiveProviderConfig();
         return;
     }
     _provider = normalized;
     emit providerChanged();
-    applyActiveProviderConfig();
-}
-
-void Setting::applyActiveProviderConfig()
-{
-    const QString nextApiServer = _provider == "ollama"
-        ? (_ollamaApiServer.trimmed().isEmpty() ? ProviderDefaults::ollamaApiServer() : _ollamaApiServer)
-        : (_openaiApiServer.trimmed().isEmpty() ? ProviderDefaults::openAiApiServer() : _openaiApiServer);
-    const QString nextApiKey = _openaiApiKey;
-    const QString nextModel = _provider == "ollama"
-        ? _ollamaModel
-        : (_openaiModel.trimmed().isEmpty() ? ProviderDefaults::openAiDefaultModel() : _openaiModel);
-
-    if (_apiServer != nextApiServer) {
-        _apiServer = nextApiServer;
-        emit apiServerChanged();
-    }
-    if (_apiKey != nextApiKey) {
-        _apiKey = nextApiKey;
-        emit apiKeyChanged();
-    }
-    if (_model != nextModel) {
-        _model = nextModel;
-        emit modelChanged();
-    }
 }
 
 void Setting::updateConfig()

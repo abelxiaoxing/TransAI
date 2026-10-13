@@ -33,7 +33,7 @@ make -j$(nproc)
 ```
 src/
 ├── main.cpp                        # Entry point, CLI, single-instance bootstrap
-├── stdafx.h                        # Q_PROPERTY_AUTO macro and common defs
+├── PropertyMacros.h                 # Q_PROPERTY_AUTO macro and common defs
 ├── app/
 │   ├── ApplicationCommandServer.*  # Local socket server for single-instance commands
 ├── input/
@@ -42,7 +42,8 @@ src/
 │   └── ClipboardGuard.*            # Save/restore clipboard around simulated copy
 ├── providers/
 │   ├── ProviderDefaults.h          # Shared provider defaults (server URLs, api-key check)
-│   ├── ProviderEndpointBuilder.*   # Chat/models URL normalization per provider
+│   ├── ApiError.h                  # Shared OpenAI-style error-payload message extraction
+│   ├── ProviderEndpointBuilder.*   # Chat/models URL normalization per provider (static helpers)
 │   ├── ModelDiscoveryService.*     # /v1/models + ollama /api/tags detection (QML type)
 │   └── ThinkingPolicy.*            # Per-vendor "suppress thinking" request params
 ├── settings/
@@ -72,7 +73,7 @@ scripts/                            # Windows build/publish scripts
 ### C++ Coding Standards
 - **Header Guards**: `#ifndef CLASSNAME_H` / `#define CLASSNAME_H`
 - **QML Integration**: `qmlRegisterType<T>("TransAI", 1, 0, "TypeName")` in main.cpp
-- **Properties**: `Q_PROPERTY_AUTO(TYPE, member)` macro from `stdafx.h` (const getter, const-ref setter)
+- **Properties**: `Q_PROPERTY_AUTO(TYPE, member)` macro from `src/PropertyMacros.h` (const getter, const-ref setter)
 - **Services**: QML-instantiated types expose signals (`translationStarted/Finished/Failed/Stopped`)
 
 ### QML Patterns

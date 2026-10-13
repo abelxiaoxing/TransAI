@@ -17,7 +17,6 @@ public:
 
 private:
     bool m_hadMimeData = false;
-    QString m_originalText;
     QMap<QString, QByteArray> m_originalMimeData;
 };
 

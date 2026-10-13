@@ -5,9 +5,22 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 
+#include "providers/ApiError.h"
+
 void StreamParser::reset()
 {
     m_buffer.clear();
+}
+
+void StreamParser::mergeInto(StreamParseResult& target, const StreamParseResult& extra)
+{
+    target.content += extra.content;
+    if (extra.hasError) {
+        target.hasError = true;
+        if (!extra.errorMessage.isEmpty()) {
+            target.errorMessage = extra.errorMessage;
+        }
+    }
 }
 
 StreamParseResult StreamParser::appendChunk(const QByteArray& data)
@@ -20,17 +33,16 @@ StreamParseResult StreamParser::appendChunk(const QByteArray& data)
         if (event.isNull()) {
             break;
         }
-
-        const StreamParseResult partial = parseEvent(event);
-        result.content += partial.content;
-        if (partial.hasError) {
-            result.hasError = true;
-            if (!partial.errorMessage.isEmpty()) {
-                result.errorMessage = partial.errorMessage;
-            }
-        }
+        mergeInto(result, parseEvent(event));
     }
 
+    return result;
+}
+
+StreamParseResult StreamParser::consume(const QByteArray& data)
+{
+    StreamParseResult result = appendChunk(data);
+    mergeInto(result, flush());
     return result;
 }
 
@@ -66,14 +78,7 @@ StreamParseResult StreamParser::parseEvent(const QByteArray& event) const
         if (payload.startsWith(' ')) {
             payload.remove(0, 1);
         }
-        const StreamParseResult partial = parseEventPayload(payload);
-        result.content += partial.content;
-        if (partial.hasError) {
-            result.hasError = true;
-            if (!partial.errorMessage.isEmpty()) {
-                result.errorMessage = partial.errorMessage;
-            }
-        }
+        mergeInto(result, parseEventPayload(payload));
     }
 
     if (!hasDataLine) {
@@ -127,13 +132,8 @@ StreamParseResult StreamParser::parseEventPayload(const QByteArray& payload) con
 
     const QJsonObject obj = doc.object();
     if (obj.contains("error")) {
-        const QJsonValue errorValue = obj.value("error");
         result.hasError = true;
-        if (errorValue.isObject()) {
-            result.errorMessage = errorValue.toObject().value("message").toString("Request failed");
-        } else {
-            result.errorMessage = errorValue.toString("Request failed");
-        }
+        result.errorMessage = ApiError::messageFromValue(obj.value("error"), QStringLiteral("Request failed"));
         return result;
     }
 

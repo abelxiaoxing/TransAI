@@ -5,7 +5,7 @@
 #include <QString>
 
 #include "providers/ProviderDefaults.h"
-#include "stdafx.h"
+#include "PropertyMacros.h"
 
 class Setting : public QObject
 {
@@ -18,12 +18,13 @@ class Setting : public QObject
     Q_PROPERTY_AUTO(QString, ollamaApiServer);
     Q_PROPERTY_AUTO(QString, ollamaModel);
 
-    // Active-provider view, derived from the per-provider values above.
-    // Read-only on purpose: the single mutation path is applyProviderConfig()
-    // plus the per-provider properties, so the two can never drift apart.
-    Q_PROPERTY(QString apiServer READ apiServer NOTIFY apiServerChanged)
-    Q_PROPERTY(QString apiKey READ apiKey NOTIFY apiKeyChanged)
-    Q_PROPERTY(QString model READ model NOTIFY modelChanged)
+    // Active-provider view, computed on demand from the per-provider values
+    // above. No members and no NOTIFY signals: QML only reads these
+    // imperatively (translate-request assembly, settings reload), so a cached
+    // copy would be redundant state that could drift from the source values.
+    Q_PROPERTY(QString apiServer READ apiServer)
+    Q_PROPERTY(QString apiKey READ apiKey)
+    Q_PROPERTY(QString model READ model)
     Q_PROPERTY(QString provider READ provider NOTIFY providerChanged)
 
     // Provider defaults exposed to QML (settings page) so the UI never
@@ -35,9 +36,25 @@ class Setting : public QObject
 public:
     explicit Setting(QObject* parent = nullptr);
 
-    QString apiServer() const { return _apiServer; }
-    QString apiKey() const { return _apiKey; }
-    QString model() const { return _model; }
+    // Empty stored values fall back to the provider defaults, mirroring the
+    // request-time fallback in TranslationService/ModelDiscoveryService.
+    QString apiServer() const
+    {
+        if (_provider == QLatin1String("ollama")) {
+            return _ollamaApiServer.trimmed().isEmpty() ? ProviderDefaults::ollamaApiServer() : _ollamaApiServer;
+        }
+        return _openaiApiServer.trimmed().isEmpty() ? ProviderDefaults::openAiApiServer() : _openaiApiServer;
+    }
+    // Ollama ignores API keys; the single stored key always belongs to the
+    // OpenAI-compatible provider.
+    QString apiKey() const { return _openaiApiKey; }
+    QString model() const
+    {
+        if (_provider == QLatin1String("ollama")) {
+            return _ollamaModel;
+        }
+        return _openaiModel.trimmed().isEmpty() ? ProviderDefaults::openAiDefaultModel() : _openaiModel;
+    }
     QString provider() const { return _provider; }
 
     QString defaultOpenAiApiServer() const { return ProviderDefaults::openAiApiServer(); }
@@ -56,17 +73,9 @@ public:
     Q_INVOKABLE void applyProviderConfig(QString provider);
 
 signals:
-    void apiServerChanged();
-    void apiKeyChanged();
-    void modelChanged();
     void providerChanged();
 
 private:
-    void applyActiveProviderConfig();
-
-    QString _apiServer;
-    QString _apiKey;
-    QString _model;
     QString _provider;
     QString m_configPath;
 };

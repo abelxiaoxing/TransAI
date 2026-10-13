@@ -7,6 +7,7 @@
 #include <QJsonParseError>
 #include <QNetworkRequest>
 
+#include "providers/ApiError.h"
 #include "providers/ProviderDefaults.h"
 #include "providers/ProviderEndpointBuilder.h"
 
@@ -50,8 +51,7 @@ void ModelDiscoveryService::detectModels(QString apiServer, QString apiKey, QStr
 
     setIsDetecting(true);
 
-    ProviderEndpointBuilder endpointBuilder;
-    QNetworkRequest request(endpointBuilder.buildModelListUrl(apiServer, normalizedProvider));
+    QNetworkRequest request(ProviderEndpointBuilder::buildModelListUrl(apiServer, normalizedProvider));
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork);
     if (normalizedProvider != "ollama") {
@@ -75,7 +75,12 @@ void ModelDiscoveryService::detectModels(QString apiServer, QString apiKey, QStr
 
         if (currentReply->error() == QNetworkReply::NoError) {
             setError(models.isEmpty() ? (parseError.isEmpty() ? "No models found" : parseError) : "");
-        } else if (currentReply->error() != QNetworkReply::OperationCanceledError) {
+        } else if (currentReply->error() == QNetworkReply::OperationCanceledError) {
+            // A canceled reply cannot reach finished via cancelCurrentRequest()
+            // (it disconnects the reply first), so this can only be the 15s
+            // transfer timeout. Report it instead of failing silently.
+            setError("Model detection timed out: no data from the server");
+        } else {
             setError(parseError.isEmpty() ? currentReply->errorString() : parseError);
         }
 
@@ -138,13 +143,8 @@ QStringList ModelDiscoveryService::parseModelList(const QByteArray& data, const 
 
     const QJsonObject obj = doc.object();
     if (obj.contains("error")) {
-        const QJsonValue errorValue = obj.value("error");
         if (errorMessage) {
-            if (errorValue.isObject()) {
-                *errorMessage = errorValue.toObject().value("message").toString("Failed to detect models");
-            } else {
-                *errorMessage = errorValue.toString("Failed to detect models");
-            }
+            *errorMessage = ApiError::messageFromValue(obj.value("error"), QStringLiteral("Failed to detect models"));
         }
         return models;
     }

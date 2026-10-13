@@ -27,6 +27,8 @@ private slots:
     void errorPayload();
     void rawJsonFallback();
     void flushTrailingBuffer();
+    void consumeCombinesTailAndFlush();
+    void consumeSurfacesFlushedError();
     void multipleEventsInOneChunk();
     void resetClearsBuffer();
 };
@@ -121,6 +123,29 @@ void TestStreamParser::flushTrailingBuffer()
     const StreamParseResult flushed = parser.flush();
     QVERIFY(!flushed.hasError);
     QCOMPARE(flushed.content, QString("B"));
+}
+
+void TestStreamParser::consumeCombinesTailAndFlush()
+{
+    // Mirrors TranslationService's finished handler: the last network chunk
+    // plus whatever stayed buffered merge into one result.
+    StreamParser parser;
+    const QByteArray tail = sseDelta("B");
+    const StreamParseResult buffered = parser.appendChunk(tail.left(tail.size() / 2));
+    QVERIFY(buffered.content.isEmpty());
+
+    const StreamParseResult result = parser.consume(tail.mid(tail.size() / 2));
+    QVERIFY(!result.hasError);
+    QCOMPARE(result.content, QString("B"));
+}
+
+void TestStreamParser::consumeSurfacesFlushedError()
+{
+    // A raw-JSON error body without the SSE separator is flushed by consume().
+    StreamParser parser;
+    const StreamParseResult result = parser.consume(QByteArray("{\"error\":{\"message\":\"bad key\"}}"));
+    QVERIFY(result.hasError);
+    QCOMPARE(result.errorMessage, QString("bad key"));
 }
 
 void TestStreamParser::multipleEventsInOneChunk()

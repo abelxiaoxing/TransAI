@@ -10,10 +10,12 @@
 class PromptBuilder
 {
 public:
-    QJsonArray buildMessages(const TranslationRequest& request, const ThinkingPolicy& policy) const;
+    // Stateless helpers (static for parity with ProviderEndpointBuilder and
+    // ThinkingPolicyBuilder); there is no reason to instantiate this class.
+    static QJsonArray buildMessages(const TranslationRequest& request, const ThinkingPolicy& policy);
 
 private:
-    QJsonObject createMessage(const QString& role, const QString& content) const;
+    static QJsonObject createMessage(const QString& role, const QString& content);
 };
 
 #endif // PROMPT_BUILDER_H

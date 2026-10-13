@@ -50,6 +50,9 @@ public:
     //
     // Forced profiles are useful when the model id is a relay alias (e.g.
     // "LocalModel" on a NewAPI gateway) that hides the real model family.
+    //
+    // `mode` may be raw/un-normalized; it is passed through
+    // normalizeThinkingMode internally ("none" -> manual, empty/unknown -> auto).
     static ThinkingPolicy build(const QString& provider, const QString& apiServer, const QString& model, const QString& mode);
 
     // Single validation point for the thinking-mode string crossing the
