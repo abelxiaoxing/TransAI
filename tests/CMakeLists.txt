@@ -47,3 +47,13 @@ add_executable(tst_imagepayloadbuilder
 target_include_directories(tst_imagepayloadbuilder PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(tst_imagepayloadbuilder PRIVATE Qt6::Gui Qt6::Test)
 add_test(NAME tst_imagepayloadbuilder COMMAND tst_imagepayloadbuilder)
+
+# Setting only pulls in header-only helpers (ProviderDefaults,
+# VisionModelCapability), so Qt6::Test (Core) is enough.
+add_executable(tst_setting
+    tst_setting.cpp
+    ${CMAKE_SOURCE_DIR}/src/settings/Setting.cpp
+)
+target_include_directories(tst_setting PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(tst_setting PRIVATE Qt6::Test)
+add_test(NAME tst_setting COMMAND tst_setting)

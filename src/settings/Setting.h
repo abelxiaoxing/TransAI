@@ -32,6 +32,10 @@ class Setting : public QObject
     Q_PROPERTY_AUTO(int, screenshotMaxImageWidth);
     Q_PROPERTY_AUTO(int, screenshotJpegQuality);
 
+    // Main-view preference. Empty means "not set" (QML falls back to the
+    // first entry of its language list).
+    Q_PROPERTY_AUTO(QString, targetLanguage);
+
     // Active-provider view, computed on demand from the per-provider values
     // above. No members and no NOTIFY signals: QML only reads these
     // imperatively (translate-request assembly, settings reload), so a cached

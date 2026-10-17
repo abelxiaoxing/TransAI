@@ -34,6 +34,7 @@ const char kScreenshotTranslateModeKey[] = "screenshotTranslateMode";
 const char kScreenshotVisionModelKey[] = "screenshotVisionModel";
 const char kScreenshotMaxImageWidthKey[] = "screenshotMaxImageWidth";
 const char kScreenshotJpegQualityKey[] = "screenshotJpegQuality";
+const char kTargetLanguageKey[] = "targetLanguage";
 const char kConfigVersionKey[] = "configVersion";
 constexpr int kConfigVersion = 2;
 constexpr int kDefaultMaxImageWidth = 1600;
@@ -216,6 +217,10 @@ bool Setting::loadConfig()
         _screenshotJpegQuality = kDefaultJpegQuality;
     }
 
+    // Main-view preference (absent = empty = QML default). Stored verbatim;
+    // the QML language list owns the fallback for unknown values.
+    _targetLanguage = obj.value(kTargetLanguageKey).toString();
+
     const QString parsedDisplayLanguage = normalizedDisplayLanguage(obj.value(kDisplayLanguageKey).toString());
     if (_displayLanguage != parsedDisplayLanguage) {
         _displayLanguage = parsedDisplayLanguage;
@@ -256,6 +261,7 @@ void Setting::updateConfig()
         {kScreenshotVisionModelKey, _screenshotVisionModel},
         {kScreenshotMaxImageWidthKey, _screenshotMaxImageWidth},
         {kScreenshotJpegQualityKey, _screenshotJpegQuality},
+        {kTargetLanguageKey, _targetLanguage},
     };
 
     QSaveFile file(m_configPath);

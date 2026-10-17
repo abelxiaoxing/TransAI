@@ -466,8 +466,21 @@ Item {
         anchors.bottom: parent.bottom
         anchors.left: parent.left
         anchors.margins: 10
-        currentIndex: 0
         model: ["简体中文", "繁体中文", "English", "Japanese", "German", "Korean", "Español", "français"]
+        // Restore the persisted target language; an empty/unknown stored
+        // value keeps the default first entry.
+        Component.onCompleted: {
+            const idx = model.indexOf(setting.targetLanguage)
+            if (idx >= 0) {
+                currentIndex = idx
+            }
+        }
+        // onActivated only fires for user picks, so restoring above does not
+        // trigger a redundant config write.
+        onActivated: {
+            setting.targetLanguage = currentText
+            setting.updateConfig()
+        }
     }
 
     TranslationService{
