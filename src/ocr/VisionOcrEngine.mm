@@ -7,6 +7,7 @@
 #include <QDebug>
 #include <QPointer>
 
+#import <Foundation/Foundation.h>
 #import <Vision/Vision.h>
 
 namespace {

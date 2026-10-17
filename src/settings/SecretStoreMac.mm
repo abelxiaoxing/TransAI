@@ -5,6 +5,7 @@
 
 #include <QDebug>
 
+#import <Foundation/Foundation.h>
 #include <Security/Security.h>
 
 namespace {

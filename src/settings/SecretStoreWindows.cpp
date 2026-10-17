@@ -63,7 +63,9 @@ public:
             return QString();
         }
         DATA_BLOB input{ 0, nullptr };
-        const QByteArray cipher = QByteArray::fromBase64(encoded.toLatin1());
+        // Non-const QByteArray::data() yields char*; DPAPI does not modify
+        // the input despite the non-const signature.
+        QByteArray cipher = QByteArray::fromBase64(encoded.toLatin1());
         input.cbData = static_cast<DWORD>(cipher.size());
         input.pbData = reinterpret_cast<BYTE*>(cipher.data());
         DATA_BLOB output{ 0, nullptr };
@@ -79,7 +81,7 @@ public:
 
     bool write(const QString& key, const QString& value) override
     {
-        const QByteArray plain = value.toUtf8();
+        QByteArray plain = value.toUtf8();
         DATA_BLOB input{ static_cast<DWORD>(plain.size()),
                          reinterpret_cast<BYTE*>(plain.data()) };
         DATA_BLOB output{ 0, nullptr };
