@@ -1,6 +1,7 @@
 #include <QCommandLineOption>
 #include <QCommandLineParser>
 #include <QGuiApplication>
+#include <QNetworkProxyFactory>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QWindow>
@@ -31,6 +32,11 @@ int main(int argc, char *argv[])
 
     QGuiApplication app(argc, argv);
     QCoreApplication::setApplicationName("TransAI");
+
+    // Honour the OS proxy configuration (corporate / campus networks). Qt
+    // defaults to no proxy at all otherwise. localhost queries resolve to
+    // Direct on all supported platforms, so a local Ollama is unaffected.
+    QNetworkProxyFactory::setUseSystemConfiguration(true);
     // Keep the original AppConfigLocation (~/.config/TransAI on Linux).
     // Adding an organization name would silently select a new settings folder.
     app.setWindowIcon(QIcon("qrc:///res/logo/logo.ico"));
