@@ -146,8 +146,8 @@ scripts/                            # Windows build/publish scripts
 ### Current State
 - CI (`.github/workflows/ci.yml`) builds on Ubuntu with Qt 6.9 and runs the
   full test suite plus a headless smoke test on every push/PR; Windows
-  (MinGW) and macOS jobs run build + tests as non-blocking experimental
-  coverage (`continue-on-error` until they prove stable)
+  (MinGW) and macOS jobs run build + tests as **blocking** coverage (all
+  three platforms gate the build)
 - Unit tests live in `tests/` (StreamParser, ThinkingPolicy,
   ProviderEndpointBuilder, I18n, VisionModelCapability, ImagePayloadBuilder,
   Setting persistence incl. secret-store migration with a fake store,

@@ -19,7 +19,7 @@
 | O-6 | 窗口尺寸不持久化 | §5 | ✅ 已实现 |
 | O-7 | 错误消息不随语言切换重新翻译 | §6 | ✅ 已实现 |
 | O-8 | Wayland 热键/点击外部引导不足 | §7 | ✅ 已实现（设置页提示增强） |
-| O-9 | CI 只有 Linux | §8 | ✅ 已实现（Windows/macOS 实验性 job） |
+| O-9 | CI 只有 Linux | §8 | ✅ 已实现（Windows/macOS 阻断 job） |
 | O-10 | API key 明文存储 | §9 | ✅ 已实现（原生后端，无新第三方依赖） |
 | O-11 | OCR 截图翻译闭环（Phase 2B） | §10 | ✅ 已实现（tesseract CLI / macOS Vision） |
 | O-12 | SettingView.qml 1556 行过大 | §11 | ✅ 已实现（拆为 10 个组件，骨架 384 行） |
@@ -278,20 +278,25 @@ private:
 
 ## 8. O-9：Windows / macOS CI
 
-`ci.yml` 新增两个 job：
+`ci.yml` 新增两个 job（均为阻断门禁）：
 
 ```yaml
 windows:
   runs-on: windows-latest
-  continue-on-error: true   # 实验性：先观察稳定性，再转为阻断
-  steps: checkout → install-qt-action (6.9.*, archives qtbase qtdeclarative)
-       → cmake -B build → cmake --build build → ctest
+  steps: checkout → install-qt-action (6.9.*, archives qtbase qtdeclarative,
+         tools tools_mingw1310) → 优先使用 Qt 自带 MinGW → cmake -B build
+       → cmake --build build → ctest
 macos: # 同构，macos-latest
 ```
 
 - 只构建 + 单测，不做 GUI 冒烟（无显示/权限环境）。
-- `continue-on-error: true` 并注释：跑绿数周后移除该标记转为强制。
-  理由：无法本地验证的工具链差异（MinGW/MSVC、clang）不应立即阻断 PR。
+- **已转为阻断**（原设计的 `continue-on-error: true` 已移除）：三平台在
+  首次接入后即全绿（Linux/macOS/Windows 各 10/10 单测），“跑绿数周
+  再转强制”的观察期不再必要。
+- 接入过程中 CI 确实抓到了真问题，验证了这两个 job 的价值：
+  `SecretStoreMac.mm` / `VisionOcrEngine.mm` 缺 `Foundation` 导入、
+  `SecretStoreWindows.cpp` 的 const 限定符、以及 Windows 上用 Qt 自带
+  MinGW 而非 runner 系统 gcc（`__imp___argc` 链接失败）。
 
 ---
 
@@ -475,7 +480,7 @@ qml/settings/
 | `qml/main.qml` | 窗口尺寸恢复与防抖保存 | §5 |
 | `qml/SettingView.qml` + `qml/settings/`（10 个组件） | 设置页拆分、Wayland 提示、截图 MODE 下拉 | §7/§10/§11 |
 | `qml/I18n.qml` | 新增词条 | §3/§4/§7/§10 |
-| `.github/workflows/ci.yml` | Windows/macOS 实验性 job、libsecret-1-dev | §8/§9 |
+| `.github/workflows/ci.yml` | Windows/macOS 阻断 job（含 Qt 自带 MinGW）、libsecret-1-dev | §8/§9 |
 | `CMakeLists.txt` | 新源文件、平台后端接线 | — |
 | `AGENTS.md` | 结构/配置 key/测试说明更新 | — |
 

@@ -53,13 +53,10 @@ jobs:
           timeout 15 ./build/TransAI --translate-selection
           kill $APP_PID
 
-  # Experimental cross-platform coverage: build + unit tests only (no GUI
-  # smoke on headless runners). continue-on-error keeps these informative
-  # rather than blocking while the toolchain setup is being stabilized —
-  # promote to required once they have stayed green for a few weeks.
+  # Cross-platform coverage: build + unit tests only (no GUI smoke on
+  # headless runners). Both jobs are blocking gate failures, like linux.
   windows:
     runs-on: windows-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v5
 
@@ -100,7 +97,6 @@ jobs:
 
   macos:
     runs-on: macos-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v5
 
