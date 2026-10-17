@@ -115,10 +115,27 @@ Item {
         result.text = message
     }
 
-    // TODO(phase-2c): expose a mode selector in the UI; the ExplainWord and
-    // CorrectGrammar prompts already exist in PromptBuilder.
+    // Mode selector state is setting.translationMode (persisted); indexes
+    // align with translationModeFromInt() (0=Translate, 1=ExplainWord,
+    // 2=CorrectGrammar).
     function getMode(){
-        return 0
+        return setting.translationMode
+    }
+
+    // Per-mode translate-button label (mode selector drives the binding).
+    function actionLabel() {
+        const mac = Qt.platform.os === "macos"
+        if (setting.translationMode === 1) return mac ? I18n.t("Explain ⌘Enter") : I18n.t("Explain (Ctrl+Enter)")
+        if (setting.translationMode === 2) return mac ? I18n.t("Correct ⌘Enter") : I18n.t("Correct (Ctrl+Enter)")
+        return mac ? I18n.t("Translate ⌘Enter") : I18n.t("Translate (Ctrl+Enter)")
+    }
+
+    // Per-mode result-panel indicator.
+    function resultLabel() {
+        if (root.screenshotSession) return I18n.t("Translated")
+        if (setting.translationMode === 1) return I18n.t("Explanation")
+        if (setting.translationMode === 2) return I18n.t("Corrected")
+        return I18n.t("Translated")
     }
 
     AppBackground {
@@ -243,11 +260,56 @@ Item {
 
     }
 
+    // Text-translation mode selector: segmented control above the input.
+    // Selection state is a binding on setting.translationMode, so config
+    // restore and UI-language switches need no imperative handling. The
+    // screenshot vision path ignores the mode (PromptBuilder is not used).
+    Row {
+        id: modeBar
+        z: 2
+        anchors.top: header.bottom
+        anchors.left: parent.left
+        anchors.margins: 10
+        spacing: 6
+        property var modes: [I18n.t("Translate"), I18n.t("Explain Word"), I18n.t("Correct Grammar")]
+
+        Repeater {
+            model: modeBar.modes
+            delegate: Rectangle {
+                width: segText.implicitWidth + 20
+                height: 26
+                radius: 13
+                color: index === setting.translationMode ? root.accent
+                     : (segArea.containsMouse ? Qt.alpha(root.accent, 0.18) : root.panelColor)
+                border.width: 1
+                border.color: index === setting.translationMode ? root.accent : root.border
+                Text {
+                    id: segText
+                    anchors.centerIn: parent
+                    text: modelData
+                    font.pixelSize: root.fontSizeSmall
+                    font.weight: Font.DemiBold
+                    color: index === setting.translationMode ? "#0F1721" : root.mutedForeground
+                }
+                MouseArea {
+                    id: segArea
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                        setting.translationMode = index
+                        setting.updateConfig()
+                    }
+                }
+            }
+        }
+    }
+
     Item{
         z:2
         id:inputItem
         anchors.margins: 10
-        anchors.top: header.bottom
+        anchors.top: modeBar.bottom
         anchors.left: parent.left
         anchors.right: parent.right
         clip:true
@@ -313,7 +375,7 @@ Item {
 
     Text{
         id:indictor
-        text:I18n.t("Translated")
+        text: root.resultLabel()
         anchors.left: inputItem.left
         anchors.top:inputItem.bottom
         opacity: 1
@@ -379,7 +441,7 @@ Item {
         anchors.right:parent.right
         anchors.margins:10
         opacity: 1
-        text: Qt.platform.os === "macos" ? I18n.t("Translate ⌘Enter") : I18n.t("Translate (Ctrl+Enter)")
+        text: root.actionLabel()
         font.capitalization: Font.MixedCase
         enabled:inputArea.text.length > 0
         visible: !root.statusBusy

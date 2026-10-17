@@ -78,8 +78,17 @@ QtObject {
         "Stopped": "已停止",
         "Ready": "就绪",
         "Translated": "翻译结果",
+        "Explanation": "讲解结果",
+        "Corrected": "纠错结果",
         "Translate (Ctrl+Enter)": "翻译 (Ctrl+Enter)",
         "Translate ⌘Enter": "翻译 ⌘Enter",
+        "Explain (Ctrl+Enter)": "讲解 (Ctrl+Enter)",
+        "Explain ⌘Enter": "讲解 ⌘Enter",
+        "Correct (Ctrl+Enter)": "纠错 (Ctrl+Enter)",
+        "Correct ⌘Enter": "纠错 ⌘Enter",
+        "Translate": "翻译",
+        "Explain Word": "单词讲解",
+        "Correct Grammar": "语法纠错",
         "stop": "停止",
 
         // Tray menu

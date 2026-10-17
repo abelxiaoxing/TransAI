@@ -18,7 +18,8 @@ private slots:
 
     void defaultsForFreshConfig();
     void targetLanguageRoundTrip();
-    void unknownTargetLanguageIsPreserved();
+    void translationModeRoundTrip();
+    void invalidValuesFallBackToDefaults();
 
 private:
     static QString configPath()
@@ -40,8 +41,9 @@ void TestSetting::init()
 
 void TestSetting::defaultsForFreshConfig()
 {
-    const Setting setting;
+    Setting setting;
     QCOMPARE(setting.targetLanguage(), QString());
+    QCOMPARE(setting.translationMode(), 0);
 }
 
 void TestSetting::targetLanguageRoundTrip()
@@ -57,18 +59,47 @@ void TestSetting::targetLanguageRoundTrip()
     }
 }
 
-void TestSetting::unknownTargetLanguageIsPreserved()
+void TestSetting::translationModeRoundTrip()
 {
-    // Unknown language names are preserved verbatim (the QML language list
-    // owns the fallback), but the value must round-trip as stored.
+    {
+        Setting setting;
+        setting.translationMode(2);
+        setting.updateConfig();
+    }
+    {
+        const Setting setting;
+        QCOMPARE(setting.translationMode(), 2);
+    }
+}
+
+void TestSetting::invalidValuesFallBackToDefaults()
+{
+    // Hand-written config with an out-of-range translationMode; the enum has
+    // exactly 0..2, anything else must clamp back to Translate (0).
     QDir().mkpath(QFileInfo(configPath()).absolutePath());
     {
         QFile file(configPath());
         QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
-        file.write(R"({"configVersion": 2, "targetLanguage": "Klingon"})");
+        file.write(R"({"configVersion": 2, "translationMode": 7, "targetLanguage": "Klingon"})");
     }
-    const Setting setting;
-    QCOMPARE(setting.targetLanguage(), QStringLiteral("Klingon"));
+    {
+        const Setting setting;
+        QCOMPARE(setting.translationMode(), 0);
+        // Unknown language names are preserved verbatim (the QML language
+        // list owns the fallback), but the value must round-trip as stored.
+        QCOMPARE(setting.targetLanguage(), QStringLiteral("Klingon"));
+    }
+
+    // Negative mode values clamp too.
+    {
+        QFile file(configPath());
+        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        file.write(R"({"configVersion": 2, "translationMode": -1})");
+    }
+    {
+        const Setting setting;
+        QCOMPARE(setting.translationMode(), 0);
+    }
 }
 
 QTEST_MAIN(TestSetting)

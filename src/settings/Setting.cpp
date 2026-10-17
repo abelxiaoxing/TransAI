@@ -35,6 +35,7 @@ const char kScreenshotVisionModelKey[] = "screenshotVisionModel";
 const char kScreenshotMaxImageWidthKey[] = "screenshotMaxImageWidth";
 const char kScreenshotJpegQualityKey[] = "screenshotJpegQuality";
 const char kTargetLanguageKey[] = "targetLanguage";
+const char kTranslationModeKey[] = "translationMode";
 const char kConfigVersionKey[] = "configVersion";
 constexpr int kConfigVersion = 2;
 constexpr int kDefaultMaxImageWidth = 1600;
@@ -99,6 +100,10 @@ Setting::Setting(QObject* parent)
     _screenshotTranslateMode = "auto";
     _screenshotMaxImageWidth = kDefaultMaxImageWidth;
     _screenshotJpegQuality = kDefaultJpegQuality;
+    // Main-view preferences: follow the QML defaults (first language entry,
+    // Translate mode). QString members default to empty; the int member of
+    // Q_PROPERTY_AUTO is uninitialized unless spelled out here.
+    _translationMode = 0;
     // First launch (config without a displayLanguage key) follows the system
     // UI language; normalizedDisplayLanguage handles that fallback.
     _displayLanguage = normalizedDisplayLanguage(QString());
@@ -217,9 +222,13 @@ bool Setting::loadConfig()
         _screenshotJpegQuality = kDefaultJpegQuality;
     }
 
-    // Main-view preference (absent = empty = QML default). Stored verbatim;
-    // the QML language list owns the fallback for unknown values.
+    // Main-view preferences (absent = defaults). translationMode mirrors the
+    // TranslationMode enum (0..2); out-of-range values fall back to 0.
     _targetLanguage = obj.value(kTargetLanguageKey).toString();
+    _translationMode = obj.value(kTranslationModeKey).toInt(0);
+    if (_translationMode < 0 || _translationMode > 2) {
+        _translationMode = 0;
+    }
 
     const QString parsedDisplayLanguage = normalizedDisplayLanguage(obj.value(kDisplayLanguageKey).toString());
     if (_displayLanguage != parsedDisplayLanguage) {
@@ -262,6 +271,7 @@ void Setting::updateConfig()
         {kScreenshotMaxImageWidthKey, _screenshotMaxImageWidth},
         {kScreenshotJpegQualityKey, _screenshotJpegQuality},
         {kTargetLanguageKey, _targetLanguage},
+        {kTranslationModeKey, _translationMode},
     };
 
     QSaveFile file(m_configPath);

@@ -32,9 +32,12 @@ class Setting : public QObject
     Q_PROPERTY_AUTO(int, screenshotMaxImageWidth);
     Q_PROPERTY_AUTO(int, screenshotJpegQuality);
 
-    // Main-view preference. Empty means "not set" (QML falls back to the
-    // first entry of its language list).
+    // Main-view preferences. Empty targetLanguage means "not set" (QML falls
+    // back to the first entry of its language list). translationMode mirrors
+    // the TranslationMode enum as an int (0=Translate, 1=ExplainWord,
+    // 2=CorrectGrammar); values are clamped to that range on load.
     Q_PROPERTY_AUTO(QString, targetLanguage);
+    Q_PROPERTY_AUTO(int, translationMode);
 
     // Active-provider view, computed on demand from the per-provider values
     // above. No members and no NOTIFY signals: QML only reads these
