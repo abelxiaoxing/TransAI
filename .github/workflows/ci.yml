@@ -70,6 +70,25 @@ jobs:
           arch: win64_mingw
           cache: true
           archives: qtbase qtdeclarative
+          # Qt's prebuilt MinGW archives need the *matching* toolchain: the
+          # runner's system gcc disagrees with them on how `__argc` is
+          # declared, which surfaces as an undefined `__imp___argc` at link
+          # time (Qt6EntryPoint references the dllimport flavour).
+          tools: 'tools_mingw1310'
+
+      - name: Prefer Qt's matching MinGW toolchain
+        shell: pwsh
+        run: |
+          $qtRoot = Split-Path (Split-Path $env:QT_ROOT_DIR)
+          $mingw = Join-Path $qtRoot 'Tools\mingw1310_64\bin'
+          if (Test-Path $mingw) {
+            $mingw | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+            Write-Host "Using Qt MinGW toolchain: $mingw"
+          } else {
+            Write-Host "::warning::Qt MinGW toolchain not found at $mingw; using the system compiler"
+          }
+          gcc --version
+          Write-Host "which gcc: $((Get-Command gcc).Source)"
 
       - name: Configure & build
         run: |
