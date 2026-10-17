@@ -4,9 +4,13 @@
 #include <QObject>
 #include <QString>
 
+#include <memory>
+
 #include "providers/ProviderDefaults.h"
 #include "vision/VisionModelCapability.h"
 #include "PropertyMacros.h"
+
+class SecretStore;
 
 class Setting : public QObject
 {
@@ -39,6 +43,14 @@ class Setting : public QObject
     Q_PROPERTY_AUTO(QString, targetLanguage);
     Q_PROPERTY_AUTO(int, translationMode);
 
+    // Main-window geometry. 0 means "not set" (QML falls back to its
+    // defaults); loaded values are clamped to the window's min/max bounds.
+    // Position (x/y) is deliberately not persisted: Wayland clients cannot
+    // position themselves, and the centered default + ensureWindowVisible()
+    // already keeps the window on screen.
+    Q_PROPERTY_AUTO(int, windowWidth);
+    Q_PROPERTY_AUTO(int, windowHeight);
+
     // Active-provider view, computed on demand from the per-provider values
     // above. No members and no NOTIFY signals: QML only reads these
     // imperatively (translate-request assembly, settings reload), so a cached
@@ -56,6 +68,11 @@ class Setting : public QObject
 
 public:
     explicit Setting(QObject* parent = nullptr);
+    // Test seam: inject a fake SecretStore to exercise the keychain
+    // read/migration/fallback logic deterministically.
+    Setting(QObject* parent, std::unique_ptr<SecretStore> secretStore);
+    // Out-of-line: unique_ptr<SecretStore> needs the complete type.
+    ~Setting() override;
 
     // Maps any stored value onto the supported UI languages. "en" wins
     // verbatim; everything else — empty/unknown values included — resolves
@@ -120,6 +137,10 @@ signals:
 private:
     QString _provider;
     QString m_configPath;
+    std::unique_ptr<SecretStore> m_secretStore;
+    // Set by loadConfig() when a plaintext API key was migrated into the
+    // secret store; the constructor then re-saves to drop the plaintext.
+    bool m_apiKeyMigratedToStore = false;
 };
 
 #endif // SETTING_H

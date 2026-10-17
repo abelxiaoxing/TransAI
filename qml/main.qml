@@ -286,12 +286,36 @@ Window {
     }
 
     Component.onCompleted: {
+        // Restore the persisted window size (0 = not set → keep defaults).
+        // Imperative assignment on purpose: the window manager rewrites
+        // width/height on user resizes, a binding would fight it.
+        if (setting.windowWidth > 0) {
+            mainWindow.width = setting.windowWidth
+        }
+        if (setting.windowHeight > 0) {
+            mainWindow.height = setting.windowHeight
+        }
         shortcutRegistrar.setShortcut(setting.shortCut)
         screenshotShortcutRegistrar.setShortcut(setting.screenshotShortCut)
         if (initialCommand.length > 0) {
             Qt.callLater(function() {
                 mainWindow.handleApplicationCommand(initialCommand)
             })
+        }
+    }
+
+    // Persist window resizes, debounced (WM-driven resize storms would
+    // otherwise write the config on every pixel).
+    onWidthChanged: geometrySaveTimer.restart()
+    onHeightChanged: geometrySaveTimer.restart()
+    Timer {
+        id: geometrySaveTimer
+        interval: 1000
+        repeat: false
+        onTriggered: {
+            setting.windowWidth = mainWindow.width
+            setting.windowHeight = mainWindow.height
+            setting.updateConfig()
         }
     }
 

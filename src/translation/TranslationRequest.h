@@ -2,7 +2,6 @@
 #define TRANSLATION_REQUEST_H
 
 #include <QString>
-#include <QVariantMap>
 
 enum class TranslationMode {
     Translate,
@@ -22,6 +21,5 @@ struct TranslationRequest {
 };
 
 TranslationMode translationModeFromInt(int value);
-TranslationRequest translationRequestFromMap(const QVariantMap& map);
 
 #endif // TRANSLATION_REQUEST_H

@@ -6,6 +6,16 @@
         <file>qml/ThemeColors.qml</file>
         <file>qml/I18n.qml</file>
         <file>qml/SettingView.qml</file>
+        <file>qml/settings/SectionCard.qml</file>
+        <file>qml/settings/SettingsRow.qml</file>
+        <file>qml/settings/StatusPill.qml</file>
+        <file>qml/settings/RoundIconButton.qml</file>
+        <file>qml/settings/ShortcutRecorder.qml</file>
+        <file>qml/settings/LanguageSection.qml</file>
+        <file>qml/settings/ProviderSection.qml</file>
+        <file>qml/settings/ModelSection.qml</file>
+        <file>qml/settings/ScreenshotSection.qml</file>
+        <file>qml/settings/HotkeySection.qml</file>
         <file>qml/AppView.qml</file>
         <file>qml/RegionSelectorWindow.qml</file>
         <file>qml/AppBackground.qml</file>

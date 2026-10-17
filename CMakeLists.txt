@@ -41,11 +41,15 @@ set(HEADERS
     src/PropertyMacros.h
     src/app/ApplicationCommandServer.h
     src/app/ClipboardHelper.h
+    src/app/TranslationHistory.h
     src/app/WindowDismissHelper.h
     src/settings/Setting.h
+    src/settings/SecretStore.h
+    src/ocr/OcrEngine.h
     src/translation/TranslationRequest.h
     src/translation/PromptBuilder.h
     src/translation/StreamParser.h
+    src/translation/StreamingChatClient.h
     src/translation/TranslationService.h
     src/providers/ProviderDefaults.h
     src/providers/ApiError.h
@@ -66,11 +70,13 @@ set(SOURCES
     src/main.cpp
     src/app/ApplicationCommandServer.cpp
     src/app/ClipboardHelper.cpp
+    src/app/TranslationHistory.cpp
     src/app/WindowDismissHelper.cpp
     src/settings/Setting.cpp
     src/translation/TranslationRequest.cpp
     src/translation/PromptBuilder.cpp
     src/translation/StreamParser.cpp
+    src/translation/StreamingChatClient.cpp
     src/translation/TranslationService.cpp
     src/providers/ProviderEndpointBuilder.cpp
     src/providers/ModelDiscoveryService.cpp
@@ -99,6 +105,28 @@ IF (CMAKE_SYSTEM_NAME MATCHES "Linux")
     qt_add_executable(TransAI
         ${SOURCES} ${HEADERS} ${RESOURCES}
     )
+
+    # API-key secure storage: libsecret backend when the dev package is
+    # installed; otherwise a null backend (plaintext fallback, as before).
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(LIBSECRET libsecret-1)
+    if (LIBSECRET_FOUND)
+        message(STATUS "SecretStore backend: libsecret")
+        target_sources(TransAI PRIVATE src/settings/SecretStoreLinux.cpp)
+        # glib headers use `signals` as a struct field; Qt's keyword macros
+        # must not leak into this translation unit.
+        set_source_files_properties(src/settings/SecretStoreLinux.cpp
+            PROPERTIES COMPILE_DEFINITIONS QT_NO_KEYWORDS)
+        target_compile_definitions(TransAI PRIVATE TRANSAI_HAVE_LIBSECRET)
+        target_include_directories(TransAI PRIVATE ${LIBSECRET_INCLUDE_DIRS})
+        target_link_libraries(TransAI PRIVATE ${LIBSECRET_LIBRARIES})
+    else()
+        message(STATUS "SecretStore backend: none (libsecret not found)")
+        target_sources(TransAI PRIVATE src/settings/SecretStoreNull.cpp)
+    endif()
+
+    # OCR backend: tesseract CLI (optional at runtime).
+    target_sources(TransAI PRIVATE src/ocr/TesseractOcrEngine.cpp)
 ELSEIF (CMAKE_SYSTEM_NAME MATCHES "Windows")
 	MESSAGE(STATUS "current platform: Windows")
 
@@ -108,12 +136,21 @@ ELSEIF (CMAKE_SYSTEM_NAME MATCHES "Windows")
         ${SOURCES} ${HEADERS} ${RESOURCES}
     )
 
+    # DPAPI-backed secret storage (CryptProtectData → crypt32).
+    target_sources(TransAI PRIVATE src/settings/SecretStoreWindows.cpp)
+    target_link_libraries(TransAI PRIVATE crypt32)
+    # OCR backend: tesseract CLI when the user has it installed.
+    target_sources(TransAI PRIVATE src/ocr/TesseractOcrEngine.cpp)
+
     set_target_properties(TransAI PROPERTIES
         WIN32_EXECUTABLE TRUE
     )
 ELSEIF (CMAKE_SYSTEM_NAME MATCHES "Darwin")
 	MESSAGE(STATUS "current platform: Darwin")
+    enable_language(OBJCXX)
     find_library( APP_SERVICES_LIBRARY ApplicationServices )
+    find_library( SECURITY_LIBRARY Security )
+    find_library( VISION_LIBRARY Vision )
 
     set(MACOSX_BUNDLE_ICON_FILE logo.icns)
     # And the following tells CMake where to find and install the file itself.
@@ -124,6 +161,11 @@ ELSEIF (CMAKE_SYSTEM_NAME MATCHES "Darwin")
     qt_add_executable(TransAI MACOSX_BUNDLE ${app_icon_macos}
         ${SOURCES} ${HEADERS} ${RESOURCES}
     )
+
+    # Keychain Services backend for the API key.
+    target_sources(TransAI PRIVATE src/settings/SecretStoreMac.mm)
+    # Vision framework OCR backend.
+    target_sources(TransAI PRIVATE src/ocr/VisionOcrEngine.mm)
 
     set_target_properties(TransAI PROPERTIES
         MACOSX_BUNDLE TRUE
@@ -151,7 +193,6 @@ IF (CMAKE_SYSTEM_NAME MATCHES "Windows")
         user32
         )
 ELSEIF (CMAKE_SYSTEM_NAME MATCHES "Linux")
-    find_package(PkgConfig REQUIRED)
     pkg_check_modules(XTST REQUIRED xtst)
     # Wayland screenshot capture goes through xdg-desktop-portal over D-Bus.
     find_package(Qt6 REQUIRED COMPONENTS DBus)
@@ -176,6 +217,8 @@ ELSEIF (CMAKE_SYSTEM_NAME MATCHES "Darwin")
 
         qhotkey
         ${APP_SERVICES_LIBRARY}
+        ${SECURITY_LIBRARY}
+        ${VISION_LIBRARY}
         )
 ENDIF()
 

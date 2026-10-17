@@ -15,7 +15,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libx11-dev libxtst-dev libgl1-mesa-dev \
-            libxkbcommon-dev libdbus-1-dev
+            libxkbcommon-dev libdbus-1-dev libsecret-1-dev
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
@@ -52,3 +52,48 @@ jobs:
           sleep 5
           timeout 15 ./build/TransAI --translate-selection
           kill $APP_PID
+
+  # Experimental cross-platform coverage: build + unit tests only (no GUI
+  # smoke on headless runners). continue-on-error keeps these informative
+  # rather than blocking while the toolchain setup is being stabilized —
+  # promote to required once they have stayed green for a few weeks.
+  windows:
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Qt (MinGW)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.9.*'
+          arch: win64_mingw
+          cache: true
+          archives: qtbase qtdeclarative
+
+      - name: Configure & build
+        run: |
+          cmake -B build -G "MinGW Makefiles" -D CMAKE_BUILD_TYPE=Release
+          cmake --build build -j4
+
+      - name: Unit tests
+        run: ctest --test-dir build --output-on-failure
+
+  macos:
+    runs-on: macos-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.9.*'
+          cache: true
+          archives: qtbase qtdeclarative
+
+      - name: Configure, build & test
+        run: |
+          cmake -B build -D CMAKE_BUILD_TYPE=Release
+          cmake --build build -j$(sysctl -n hw.ncpu)
+          ctest --test-dir build --output-on-failure

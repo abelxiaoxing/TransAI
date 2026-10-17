@@ -37,6 +37,7 @@ src/
 ├── app/
 │   ├── ApplicationCommandServer.*  # Local socket server for single-instance commands
 │   ├── ClipboardHelper.*           # QML-facing QClipboard wrapper (context property "clipboard"; copies result text without a selection)
+│   └── TranslationHistory.*        # Recent-translation store (context property "translationHistory"; translation-history.json, newest-first, capped at 100)
 ├── input/
 │   ├── GlobalShortcutManager.*     # QHotkey-based global hotkeys (QML type; disabled on Wayland)
 │   ├── GlobalClickMonitor.*        # Passive evdev BTN_LEFT observer for click-outside-to-hide on Wayland (context property; needs /dev/input read access)
@@ -49,23 +50,32 @@ src/
 │   ├── ModelDiscoveryService.*     # /v1/models + ollama /api/tags detection (QML type)
 │   └── ThinkingPolicy.*            # Automatic thinking-suppression policy (params + rejection retry)
 ├── settings/
-│   └── Setting.*                   # config.json load/save + active provider config
+│   ├── Setting.*                   # config.json load/save + active provider config
+│   └── SecretStore*.h/cpp/mm       # OS keychain for the API key (libsecret / Keychain / DPAPI; null fallback)
+├── ocr/
+│   ├── OcrEngine.h                 # OCR backend interface + language-selection helpers (context property "ocrEngine")
+│   ├── TesseractOcrEngine.cpp      # Linux/Windows backend: tesseract CLI via QProcess (optional at runtime)
+│   ├── VisionOcrEngine.mm          # macOS backend: VNRecognizeTextRequest (Vision framework)
+│   └── OcrEngineNull.cpp           # Unavailable fallback backend
 ├── translation/
-│   ├── TranslationService.*        # Streaming chat-completion client (QML type)
+│   ├── StreamingChatClient.*       # Shared streaming chat-completion base (SSE, timeouts, thinking retry, terminal signals)
+│   ├── TranslationService.*        # Text translation (StreamingChatClient subclass: validation + PromptBuilder body)
 │   ├── StreamParser.*              # SSE chunk parser (OpenAI-compatible + raw JSON)
-│   ├── TranslationRequest.*        # Request struct + QVariantMap conversion
+│   ├── TranslationRequest.*        # Request struct + TranslationMode int mapping
 │   └── PromptBuilder.*             # Per-mode system/user prompt construction
 ├── capture/
 │   ├── ScreenshotCaptureService.*  # Unified screenshot entry (QML type): Wayland portal vs QScreen fallback
 │   └── PortalScreenshotBackend.*   # xdg-desktop-portal Screenshot over D-Bus (Linux/Wayland)
 ├── vision/
-│   ├── VisionTranslationService.*  # Streaming multimodal chat client (QML type, mirrors TranslationService)
+│   ├── VisionTranslationService.*  # Multimodal translation (StreamingChatClient subclass: image payload + vision messages + error guidance)
 │   ├── ImagePayloadBuilder.*       # QImage → scaled JPEG → base64 data URL (pure logic)
 │   └── VisionModelCapability.h     # Header-only vision-model id heuristic (UI hints/routing only)
 qml/
 ├── main.qml                        # Main window, tray, drag, shortcuts, command dispatch
 ├── AppView.qml                     # Translation interface
-├── SettingView.qml                 # Settings UI (provider/model/hotkey)
+├── SettingView.qml                 # Settings page skeleton: header + section wiring, load/save orchestration
+├── settings/                       # Setting sections: Language/Provider/Model/Screenshot/HotkeySection +
+│                                   #   shared SectionCard/SettingsRow/StatusPill/RoundIconButton/ShortcutRecorder
 ├── AppBackground.qml               # Shared gradient + neon-circle page background
 ├── ThemedComboBox.qml              # Shared dark-theme ComboBox (settings page)
 ├── GTextEdit.qml                   # Flickable-based text editor
@@ -85,35 +95,38 @@ scripts/                            # Windows build/publish scripts
 - **QML Integration**: `qmlRegisterType<T>("TransAI", 1, 0, "TypeName")` in main.cpp
 - **Properties**: `Q_PROPERTY_AUTO(TYPE, member)` macro from `src/PropertyMacros.h` (const getter, const-ref setter)
 - **Services**: QML-instantiated types expose signals (`translationStarted/Finished/Failed/Stopped`)
+- **Request APIs**: explicit Q_INVOKABLE parameters (e.g. `TranslationService.translate(text, targetLanguage, mode, provider, apiServer, apiKey, model)`) — QVariantMap request bags were removed so arity/type mistakes surface at the call site
 
 ### QML Patterns
 - **Theme Colors**: Single source of truth is the `ThemeColors` singleton (qml/ThemeColors.qml). Views alias needed tokens as readonly properties; do not hardcode palette hex values.
-- **Shared chrome**: Page backgrounds come from `AppBackground`; settings-page dropdowns use `ThemedComboBox`. Extend those components instead of copying their styles.
+- **Shared chrome**: Page backgrounds come from `AppBackground`; settings-page dropdowns use `ThemedComboBox`; settings sections are built from `qml/settings/` (SectionCard/SettingsRow + per-domain Section). Extend those components instead of copying their styles.
 - **Declarative state**: Avoid imperative assignments that break bindings (e.g. opacity driven by MouseArea state must stay a binding).
 - **Window Management**: `ensureWindowVisible()` keeps windows on screen; auto-hide is click-driven (see Window Management gotcha), Esc / ✕ always hide
 - **Platform Detection**: `Qt.platform.os` for platform-specific UI adjustments
 
 ### Settings Storage
 - Location: `QStandardPaths::AppConfigLocation` (`~/.config/TransAI/config.json` on Linux)
-- Format: JSON with `configVersion`; per-provider keys (`openaiApiServer/openaiApiKey/openaiModel`, `ollamaApiServer/ollamaModel`) plus active `provider`, `shortCut`, `displayLanguage` (`en` / `zh-CN`; absent/empty falls back to the system UI language), main-view preferences (`targetLanguage` — empty = not set; `translationMode` = 0|1|2 mirroring `TranslationMode`, clamped on load), and screenshot-translation keys (`screenshotShortCut`, `screenshotTranslateMode` = `auto`|`vision`, `screenshotVisionModel` (empty = follow current model), `screenshotMaxImageWidth` = 1600, `screenshotJpegQuality` = 85). Legacy top-level `apiKey/apiServer/model` are READ as one-way migration fallbacks but no longer written; the removed `thinkingMode` key is simply dropped on the next save
-- API keys are stored in plain text; the file is chmod 600 on Unix
+- Format: JSON with `configVersion`; per-provider keys (`openaiApiServer/openaiApiKey/openaiModel`, `ollamaApiServer/ollamaModel`) plus active `provider`, `shortCut`, `displayLanguage` (`en` / `zh-CN`; absent/empty falls back to the system UI language), main-view preferences (`targetLanguage` — empty = not set; `translationMode` = 0|1|2 mirroring `TranslationMode`, clamped on load), and screenshot-translation keys (`screenshotShortCut`, `screenshotTranslateMode` = `auto`|`vision`|`ocr`, `screenshotVisionModel` (empty = follow current model), `screenshotMaxImageWidth` = 1600, `screenshotJpegQuality` = 85). Legacy top-level `apiKey/apiServer/model` are READ as one-way migration fallbacks but no longer written; the removed `thinkingMode` key is simply dropped on the next save
+- API key secure storage: when an OS keychain backend is available (`SecretStore` — libsecret on Linux when compiled with it, Keychain on macOS, DPAPI on Windows), `openaiApiKey` lives there instead of the file; the config then carries an empty `openaiApiKey` plus the marker `openaiApiKeyInSecretStore: true`. Migration from plaintext is one-way, verified by read-back, and any backend failure keeps the legacy plaintext behavior (the file is chmod 600 on Unix)
 
 ### Single-Instance & Selection Translation
 - `TransAI --translate-selection` / `--translate-screenshot` / `--background` / plain launch: command forwarded over a local socket (`$XDG_RUNTIME_DIR/transai-command`) to the running instance; first instance becomes the server
 - Wayland: QHotkey is disabled; users bind their own desktop hotkey to `TransAI --translate-selection` / `--translate-screenshot`
 - X11: selection read via simulated Ctrl+C with clipboard guard; Wayland: `wl-paste --primary` with Qt primary-selection fallback
 
-### Screenshot Translation (multimodal)
-- Flow: trigger (tray/hotkey/CLI) → hide window → `ScreenshotCaptureService` → `VisionTranslationService` streams into the shared result panel; the text and vision sessions abort each other so exactly one owns the panel
+### Screenshot Translation (multimodal + OCR)
+- Flow: trigger (tray/hotkey/CLI) → hide window → `ScreenshotCaptureService` → routed by `screenshotTranslateMode`: the vision path (`VisionTranslationService`) streams into the shared result panel; the OCR path (`OcrEngine` → `TranslationService` with mode forced to Translate) recognizes text first, shows it in the input panel, then streams the translation. Text/vision/OCR sessions abort each other so exactly one owns the panel (`ocrBusy` keeps the status pill honest during recognition)
+- Mode routing (`AppView.effectiveScreenshotMode()`): explicit `vision`/`ocr` win; `auto` = vision when the effective screenshot model looks vision-capable, else OCR when an engine is available, else vision (which then surfaces the vision-unsupported guidance)
+- OCR backends (`src/ocr/`): tesseract CLI via QProcess on Linux/Windows (optional at runtime — absent binary → `available=false` and the UI says so; language packs probed via `--list-langs`, preferring `chi_sim+eng`), Vision framework (`VNRecognizeTextRequest`, zh-Hans+en) on macOS. QML always sees a valid `ocrEngine` context property
 - Wayland capture requires xdg-desktop-portal (system UI handles region selection); X11/Windows/macOS grab every screen and open the in-app fullscreen region-selection overlay (`qml/RegionSelectorWindow.qml`, one per screen; drag = select, Esc/right-click = cancel)
 - The vision request reuses provider/server/key/model with the `screenshotVisionModel` override (empty = follow current); image payloads never touch `PromptBuilder`, and QML never sees base64
 - Portal handle tokens must be valid D-Bus object-path elements — strip dashes from UUIDs
 
 ### API Communication
 - **Streaming**: SSE parsing with cross-chunk buffering; `[DONE]` handling; raw-JSON fallback for error bodies
-- **Timeouts**: 30s inactivity (translation), 15s (model detection)
+- **Timeouts**: 30s inactivity (transfer timeout, resets while data streams) plus a 5-minute overall cap per request, both in `StreamingChatClient`; the overall-timeout abort deliberately keeps the reply connected so the finished handler emits `translationFailed` (a user `abort()` disconnects first and emits `translationStopped` — the two paths never mix); 15s for model detection
 - **Error model**: one terminal signal per request (`translationFinished` / `translationFailed` / `translationStopped`)
-- **Thinking suppression**: fully automatic (no user setting), three layers — `ThinkingPolicyBuilder` derives vendor params from provider/host/model id (DeepSeek `thinking.type`, Qwen `enable_thinking`, Ollama `think`, OpenAI `reasoning_effort`) plus `/no_think` and direct-answer prompt hints; `TranslationService` transparently retries once without the params when the endpoint rejects them (`ThinkingPolicyBuilder::isThinkingParamRejection`); `StreamParser` strips residual `<think>`-style blocks from the streamed content
+- **Thinking suppression**: fully automatic (no user setting), three layers — `ThinkingPolicyBuilder` derives vendor params from provider/host/model id (DeepSeek `thinking.type`, Qwen `enable_thinking`, Ollama `think`, OpenAI `reasoning_effort`) plus `/no_think` and direct-answer prompt hints; `StreamingChatClient` transparently retries once without the params when the endpoint rejects them (subclasses supply a prebuilt `bodyWithoutThinking` in `PendingRequest`); `StreamParser` strips residual `<think>`-style blocks from the streamed content
 
 ## Important Gotchas
 
@@ -132,11 +145,15 @@ scripts/                            # Windows build/publish scripts
 
 ### Current State
 - CI (`.github/workflows/ci.yml`) builds on Ubuntu with Qt 6.9 and runs the
-  full test suite plus a headless smoke test on every push/PR
-- Unit tests for the pure-logic modules live in `tests/` (StreamParser,
-  ThinkingPolicy, ProviderEndpointBuilder, I18n, VisionModelCapability,
-  ImagePayloadBuilder, Setting persistence), built when Qt6::Test is
-  available:
+  full test suite plus a headless smoke test on every push/PR; Windows
+  (MinGW) and macOS jobs run build + tests as non-blocking experimental
+  coverage (`continue-on-error` until they prove stable)
+- Unit tests live in `tests/` (StreamParser, ThinkingPolicy,
+  ProviderEndpointBuilder, I18n, VisionModelCapability, ImagePayloadBuilder,
+  Setting persistence incl. secret-store migration with a fake store,
+  TranslationHistory persistence, OCR language selection, plus an end-to-end
+  StreamingChatClient test against a scripted in-process HTTP/SSE server),
+  built when Qt6::Test is available:
   ```bash
   cmake -D CMAKE_BUILD_TYPE=Release -D CMAKE_PREFIX_PATH="$QT_PATH" ..
   ctest --test-dir build --output-on-failure
@@ -161,6 +178,7 @@ scripts/                            # Windows build/publish scripts
 
 - `docs/phase-1-architecture-refactor.md` - Module split blueprint (implemented)
 - `docs/phase-2*.md` - Selection/OCR/UI blueprints (2A implemented; 2B/2C/2D pending)
+- `docs/phase-4-optimization-plan.md` - Post-Phase-3 optimization plan (StreamingChatClient extraction, overall timeout, streaming mock tests, history, Auto target language, geometry persistence, error re-translation, Wayland guidance, Win/macOS CI, SettingView split, SecretStore key storage, OCR loop, typed request APIs all implemented; live-translation debounce intentionally rejected)
 - `docs/hyprland-integration.md` - Wayland compositor notes
 
 ## Development Workflow
@@ -173,7 +191,7 @@ scripts/                            # Windows build/publish scripts
 - C++ backend logic with QML frontend; clear separation between services and UI
 - Resources embedded via Qt resource system (TransAI.qrc)
 - i18n: UI display language (English / 简体中文) is handled by the `qml/I18n.qml` singleton on top of `Setting.displayLanguage`; wrap user-visible QML strings in `I18n.t(...)` and add Chinese entries to its `_zhTable`. Deliberately outside the Qt Linguist toolchain (lupdate/lrelease are not available in every build environment), so no `.ts`/`.qm` files exist
-- Error i18n: fixed English error strings emitted by C++ services double as `_zhTable` keys; QML display points wrap them via `AppView.localizeError()` (composite "<guidance>\n\n<raw>" messages translate only the head; dynamic server payloads stay in English on purpose). Known limitation: an already-displayed error does not re-translate on a live language switch (imperative assignment, transient UI)
+- Error i18n: fixed English error strings emitted by C++ services double as `_zhTable` keys; QML display points wrap them via `AppView.localizeError()` (composite "<guidance>\n\n<raw>" messages translate only the head; dynamic server payloads stay in English on purpose). AppView keeps the raw English error in `lastRawError` and re-renders it on a live language switch via `I18n.onLanguageChanged`
 
 ## Common Development Tasks
 

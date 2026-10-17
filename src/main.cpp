@@ -8,6 +8,7 @@
 
 #include "app/ApplicationCommandServer.h"
 #include "app/ClipboardHelper.h"
+#include "app/TranslationHistory.h"
 #include "app/WindowDismissHelper.h"
 #include "settings/Setting.h"
 #include <QIcon>
@@ -16,6 +17,7 @@
 #include "input/GlobalClickMonitor.h"
 #include "input/SelectionTextProvider.h"
 #include "capture/ScreenshotCaptureService.h"
+#include "ocr/OcrEngine.h"
 #include "providers/ModelDiscoveryService.h"
 #include "translation/TranslationService.h"
 #include "vision/VisionTranslationService.h"
@@ -99,6 +101,11 @@ int main(int argc, char *argv[])
     WindowDismissHelper * windowDismiss = new WindowDismissHelper(&app);
     GlobalClickMonitor * clickMonitor = new GlobalClickMonitor(&app);
     ClipboardHelper * clipboard = new ClipboardHelper(&app);
+    TranslationHistory * translationHistory = new TranslationHistory(&app);
+    // OCR backend for the screenshot OCR path (tesseract CLI on
+    // Linux/Windows, Vision framework on macOS); always a valid object.
+    OcrEngine * ocrEngine = createOcrEngine().release();
+    ocrEngine->setParent(&app);
     qmlRegisterType<TranslationService>("TransAI", 1, 0, "TranslationService");
     qmlRegisterType<VisionTranslationService>("TransAI", 1, 0, "VisionTranslationService");
     qmlRegisterType<ScreenshotCaptureService>("TransAI", 1, 0, "ScreenshotCaptureService");
@@ -114,6 +121,8 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("windowDismiss", windowDismiss);
     engine.rootContext()->setContextProperty("globalClickMonitor", clickMonitor);
     engine.rootContext()->setContextProperty("clipboard", clipboard);
+    engine.rootContext()->setContextProperty("translationHistory", translationHistory);
+    engine.rootContext()->setContextProperty("ocrEngine", ocrEngine);
     engine.rootContext()->setContextProperty("startHidden", startHidden);
     engine.rootContext()->setContextProperty("initialCommand", initialCommand);
 

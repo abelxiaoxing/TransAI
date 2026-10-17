@@ -1,8 +1,6 @@
 #include "translation/TranslationService.h"
 
-#include <QJsonDocument>
 #include <QJsonObject>
-#include <QNetworkRequest>
 
 #include "providers/ProviderDefaults.h"
 #include "providers/ProviderEndpointBuilder.h"
@@ -10,81 +8,27 @@
 #include "translation/PromptBuilder.h"
 
 TranslationService::TranslationService(QObject* parent)
-    : QObject(parent)
-    , m_networkManager(new QNetworkAccessManager(this))
-    , m_reply(nullptr)
-    , m_isRequesting(false)
+    : StreamingChatClient(parent)
 {
-    // Abort requests that see no data for 30s so the UI never gets stuck in
-    // the requesting state. The timeout resets whenever data keeps streaming.
-    m_networkManager->setTransferTimeout(30 * 1000);
 }
 
-QString TranslationService::responseData() const
+void TranslationService::translate(const QString& text, const QString& targetLanguage, int mode,
+                                   const QString& provider, const QString& apiServer,
+                                   const QString& apiKey, const QString& model)
 {
-    return m_responseData;
-}
-
-QString TranslationService::responseError() const
-{
-    return m_responseError;
-}
-
-bool TranslationService::isRequesting() const
-{
-    return m_isRequesting;
-}
-
-void TranslationService::translateFromMap(const QVariantMap& requestMap)
-{
-    translate(translationRequestFromMap(requestMap));
-}
-
-void TranslationService::abort()
-{
-    if (!m_reply) {
-        return;
-    }
-    cancelCurrentRequest();
-    emit translationStopped();
-}
-
-void TranslationService::cancelCurrentRequest()
-{
-    if (!m_reply) {
-        return;
-    }
-
-    QNetworkReply* reply = m_reply;
-    m_reply = nullptr;
-    disconnect(reply, nullptr, this, nullptr);
-    reply->abort();
-    reply->deleteLater();
-    m_streamParser.reset();
-    setIsRequesting(false);
-}
-
-void TranslationService::handleStreamData(QNetworkReply* reply)
-{
-    if (!reply || m_reply != reply) {
-        return;
-    }
-
-    const StreamParseResult result = m_streamParser.appendChunk(reply->readAll());
-    if (!result.content.isEmpty()) {
-        setResponseData(m_responseData + result.content);
-    }
-    if (result.hasError && !result.errorMessage.isEmpty()) {
-        // Record the error but do not emit translationFailed here; the
-        // finished handler emits exactly one terminal signal per request.
-        setResponseError(result.errorMessage);
-    }
+    TranslationRequest request;
+    request.text = text;
+    request.targetLanguage = targetLanguage;
+    request.mode = translationModeFromInt(mode);
+    request.provider = provider;
+    request.apiServer = apiServer;
+    request.apiKey = apiKey;
+    request.model = model;
+    translate(request);
 }
 
 void TranslationService::translate(const TranslationRequest& request)
 {
-    cancelCurrentRequest();
-
     TranslationRequest normalizedRequest = request;
     normalizedRequest.provider = ProviderDefaults::normalizedProviderName(normalizedRequest.provider);
 
@@ -92,41 +36,25 @@ void TranslationService::translate(const TranslationRequest& request)
         normalizedRequest.apiServer = ProviderDefaults::defaultApiServerForProvider(normalizedRequest.provider);
     }
 
-    setResponseError("");
-    setResponseData("");
-
-    // cancelCurrentRequest() above already reset isRequesting, so the
-    // validation failures below only record the error and emit the terminal
-    // signal.
     if (normalizedRequest.text.trimmed().isEmpty()) {
-        setResponseError("Please enter text to translate");
-        emit translationFailed(m_responseError);
+        failValidation(QStringLiteral("Please enter text to translate"));
         return;
     }
 
     if (normalizedRequest.model.trimmed().isEmpty()) {
-        setResponseError("Please select a model");
-        emit translationFailed(m_responseError);
+        failValidation(QStringLiteral("Please select a model"));
         return;
     }
 
     if (normalizedRequest.provider != "ollama" && !ProviderDefaults::isPlausibleApiKey(normalizedRequest.apiKey)) {
-        setResponseError(ProviderDefaults::apiKeyErrorMessage());
-        emit translationFailed(m_responseError);
+        failValidation(ProviderDefaults::apiKeyErrorMessage());
         return;
     }
 
-    // Fresh retry budget per user-facing request.
-    m_thinkingParamsAutoDisabled = false;
-
-    m_streamParser.reset();
-    setIsRequesting(true);
-    emit translationStarted();
-
-    sendChatRequest(normalizedRequest);
+    startRequest(buildPendingRequest(normalizedRequest));
 }
 
-void TranslationService::sendChatRequest(const TranslationRequest& request)
+TranslationService::PendingRequest TranslationService::buildPendingRequest(const TranslationRequest& request) const
 {
     // Decide how to suppress/minimize model thinking for this endpoint/model
     // (e.g. thinking.type=disabled for DeepSeek chat, enable_thinking=false
@@ -139,141 +67,32 @@ void TranslationService::sendChatRequest(const TranslationRequest& request)
         // (prompt level) to skip its reasoning process.
         thinkingPolicy.directAnswerHint = true;
     }
-    if (m_thinkingParamsAutoDisabled) {
-        // Transparent retry after the endpoint rejected the thinking fields:
-        // resend without them; prompt/output-level suppression remains.
-        thinkingPolicy.bodyParams = QJsonObject();
-    }
 
-    QNetworkRequest networkRequest(ProviderEndpointBuilder::buildChatCompletionUrl(request.apiServer, request.provider));
-    networkRequest.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    networkRequest.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork);
+    PendingRequest pending;
+    pending.networkRequest = QNetworkRequest(
+        ProviderEndpointBuilder::buildChatCompletionUrl(request.apiServer, request.provider));
+    pending.networkRequest.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    pending.networkRequest.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork);
     if (request.provider != "ollama") {
-        networkRequest.setRawHeader("Authorization", QString("Bearer %1").arg(request.apiKey.trimmed()).toUtf8());
+        pending.networkRequest.setRawHeader(
+            "Authorization", QString("Bearer %1").arg(request.apiKey.trimmed()).toUtf8());
     }
 
-    QJsonObject requestData;
-    requestData.insert("model", request.model);
-    requestData.insert("stream", true);
+    const QJsonValue messages = PromptBuilder::buildMessages(request, thinkingPolicy);
+
+    pending.body.insert(QStringLiteral("model"), request.model);
+    pending.body.insert(QStringLiteral("stream"), true);
     for (auto it = thinkingPolicy.bodyParams.constBegin(); it != thinkingPolicy.bodyParams.constEnd(); ++it) {
-        requestData.insert(it.key(), it.value());
+        pending.body.insert(it.key(), it.value());
     }
-    requestData.insert("messages", PromptBuilder::buildMessages(request, thinkingPolicy));
+    pending.body.insert(QStringLiteral("messages"), messages);
 
-    m_reply = m_networkManager->post(networkRequest, QJsonDocument(requestData).toJson());
-    QNetworkReply* currentReply = m_reply;
-    connect(currentReply, &QNetworkReply::readyRead, this, [this, currentReply]() {
-        handleStreamData(currentReply);
-    });
-    connect(currentReply, &QNetworkReply::finished, this, [this, currentReply, request]() {
-        if (m_reply != currentReply) {
-            currentReply->deleteLater();
-            return;
-        }
-
-        // Final read plus the buffered tail, merged into a single result.
-        const StreamParseResult result = m_streamParser.consume(currentReply->readAll());
-
-        if (!result.content.isEmpty()) {
-            setResponseData(m_responseData + result.content);
-        }
-        if (result.hasError && !result.errorMessage.isEmpty()) {
-            setResponseError(result.errorMessage);
-        }
-
-        // When a strict endpoint rejects the automatic thinking fields as
-        // unknown request parameters (HTTP 400 "extra fields not permitted",
-        // "unknown parameter", ...), retry once without them before failing.
-        // The empty-content guard keeps the retry to clean rejections, so a
-        // response that already streamed is never replayed.
-        if (!m_thinkingParamsAutoDisabled && m_responseData.isEmpty() && !m_responseError.isEmpty()
-            && ThinkingPolicyBuilder::isThinkingParamRejection(m_responseError)) {
-            m_thinkingParamsAutoDisabled = true;
-            m_streamParser.reset();
-            setResponseError("");
-            currentReply->deleteLater();
-            m_reply = nullptr;
-            sendChatRequest(request);
-            return;
-        }
-
-        setIsRequesting(false);
-
-        if (currentReply->error() == QNetworkReply::NoError) {
-            if (m_responseError.isEmpty()) {
-                emit translationFinished(m_responseData);
-            } else {
-                emit translationFailed(m_responseError);
-            }
-        } else if (currentReply->error() == QNetworkReply::OperationCanceledError) {
-            // abort() disconnects the reply before cancelling it, so a canceled
-            // reply that still reaches finished can only be the 30s transfer
-            // timeout. Report it instead of leaving the UI without a terminal
-            // signal (the reply would otherwise end in a silent "Ready").
-            const QString timeoutError = m_responseError.isEmpty()
-                ? QStringLiteral("Translation timed out: no data from the server")
-                : m_responseError;
-            setResponseError(timeoutError);
-            emit translationFailed(timeoutError);
-        } else {
-            const QString error = m_responseError.isEmpty()
-                ? networkErrorMessage(currentReply->error())
-                : m_responseError;
-            setResponseError(error);
-            emit translationFailed(error);
-        }
-
-        currentReply->deleteLater();
-        m_reply = nullptr;
-    });
-}
-
-void TranslationService::setResponseData(const QString& responseData)
-{
-    if (m_responseData == responseData) {
-        return;
+    // Transparent-retry fallback for endpoints that reject the thinking
+    // fields: identical body minus those fields (equal when none were added).
+    pending.bodyWithoutThinking = pending.body;
+    for (auto it = thinkingPolicy.bodyParams.constBegin(); it != thinkingPolicy.bodyParams.constEnd(); ++it) {
+        pending.bodyWithoutThinking.remove(it.key());
     }
-    m_responseData = responseData;
-    emit responseDataChanged();
-}
 
-void TranslationService::setResponseError(const QString& responseError)
-{
-    if (m_responseError == responseError) {
-        return;
-    }
-    m_responseError = responseError;
-    emit responseErrorChanged();
-}
-
-void TranslationService::setIsRequesting(bool isRequesting)
-{
-    if (m_isRequesting == isRequesting) {
-        return;
-    }
-    m_isRequesting = isRequesting;
-    emit isRequestingChanged();
-}
-
-QString TranslationService::networkErrorMessage(QNetworkReply::NetworkError error) const
-{
-    // QNetworkReply error-code ranges (see QNetworkReply documentation):
-    //   1-99 network, 101-199 proxy, 201-299 content (covers HTTP 401/403/404),
-    //   301-399 protocol, 401-499 server-side.
-    if (error > 0 && error < 100) {
-        return "Network error: could not reach the server";
-    }
-    if (error > 100 && error < 200) {
-        return "Proxy error: could not reach the server through the proxy";
-    }
-    if (error > 200 && error < 300) {
-        return "Request rejected: check the API key, model name and server URL";
-    }
-    if (error > 300 && error < 400) {
-        return "Protocol error: unexpected response from the server";
-    }
-    if (error > 400 && error < 500) {
-        return "Server error: the API server failed to handle the request";
-    }
-    return "Network error";
+    return pending;
 }

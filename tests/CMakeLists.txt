@@ -53,7 +53,43 @@ add_test(NAME tst_imagepayloadbuilder COMMAND tst_imagepayloadbuilder)
 add_executable(tst_setting
     tst_setting.cpp
     ${CMAKE_SOURCE_DIR}/src/settings/Setting.cpp
+    ${CMAKE_SOURCE_DIR}/src/settings/SecretStoreNull.cpp
 )
 target_include_directories(tst_setting PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(tst_setting PRIVATE Qt6::Test)
 add_test(NAME tst_setting COMMAND tst_setting)
+
+# End-to-end streaming test against a scripted in-process HTTP server; needs
+# Network for QTcpServer/QTcpSocket and the full translation module chain.
+add_executable(tst_streamingchatclient
+    tst_streamingchatclient.cpp
+    ${CMAKE_SOURCE_DIR}/src/translation/TranslationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/translation/StreamingChatClient.cpp
+    ${CMAKE_SOURCE_DIR}/src/translation/TranslationRequest.cpp
+    ${CMAKE_SOURCE_DIR}/src/translation/PromptBuilder.cpp
+    ${CMAKE_SOURCE_DIR}/src/translation/StreamParser.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/ProviderEndpointBuilder.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/ThinkingPolicy.cpp
+)
+target_include_directories(tst_streamingchatclient PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(tst_streamingchatclient PRIVATE Qt6::Network Qt6::Test)
+add_test(NAME tst_streamingchatclient COMMAND tst_streamingchatclient)
+
+add_executable(tst_translationhistory
+    tst_translationhistory.cpp
+    ${CMAKE_SOURCE_DIR}/src/app/TranslationHistory.cpp
+)
+target_include_directories(tst_translationhistory PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(tst_translationhistory PRIVATE Qt6::Test)
+add_test(NAME tst_translationhistory COMMAND tst_translationhistory)
+
+# OCR language-selection helpers live in the (platform-neutral) tesseract
+# backend source; the test does not need a tesseract binary.
+add_executable(tst_ocrengine
+    tst_ocrengine.cpp
+    ${CMAKE_SOURCE_DIR}/src/ocr/OcrEngine.h
+    ${CMAKE_SOURCE_DIR}/src/ocr/TesseractOcrEngine.cpp
+)
+target_include_directories(tst_ocrengine PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(tst_ocrengine PRIVATE Qt6::Gui Qt6::Test)
+add_test(NAME tst_ocrengine COMMAND tst_ocrengine)

@@ -11,19 +11,27 @@ Item {
     property bool resultHasFocus: result.textedit.activeFocus
     property bool stopped: false
     property bool selectionUnavailable: false
+    // Raw (English) app-generated error currently shown in the result panel,
+    // kept so a live UI-language switch can re-translate it (the display
+    // points assign localized text imperatively, which breaks bindings).
+    property string lastRawError: ""
+    property bool errorDisplayed: false
     // Screenshot (vision) session state. Exactly one session owns the result
     // panel at a time: starting either path aborts the other service first.
     property bool screenshotSession: false
+    // OCR leg of a screenshot session is in flight (tesseract/Vision running).
+    property bool ocrBusy: false
     // Set when the capture itself failed before any request was sent.
     property bool screenshotFailed: false
 
     // Derived view state: exactly one write-path per flag (translation
     // lifecycle signals below), everything else is a binding so the final
     // status never depends on signal-delivery order.
-    readonly property bool statusBusy: translationService.isRequesting || visionService.isRequesting
+    readonly property bool statusBusy: translationService.isRequesting || visionService.isRequesting || root.ocrBusy
     readonly property string activeError: screenshotSession ? visionService.responseError : translationService.responseError
     readonly property string statusText: {
         if (selectionUnavailable) return I18n.t("Selection unavailable")
+        if (root.ocrBusy) return I18n.t("Recognizing text...")
         if (statusBusy) return I18n.t("Translating...")
         if (screenshotSession && screenshotFailed) return I18n.t("Error")
         if (activeError !== "") return I18n.t("Error")
@@ -69,35 +77,61 @@ Item {
         }
         // The text session takes over the result panel.
         visionService.abort()
+        ocrEngine.cancel()
+        root.ocrBusy = false
         root.screenshotSession = false
         root.screenshotFailed = false
-        translationService.translateFromMap({
-            "text": inputArea.text,
-            "targetLanguage": langSelector.currentText,
-            "mode": getMode(),
-            "provider": setting.provider,
-            "apiServer": setting.apiServer,
-            "apiKey": setting.apiKey,
-            "model": setting.model
-        })
+        translationService.translate(inputArea.text,
+                                     effectiveTargetLang(inputArea.text),
+                                     setting.translationMode,
+                                     setting.provider,
+                                     setting.apiServer,
+                                     setting.apiKey,
+                                     setting.model)
     }
 
-    // Screenshot translation entry point (multimodal). The image comes from
-    // ScreenshotCaptureService; options mirror the text request but use the
-    // screenshot vision model override ("follow current model" when empty).
+    // Screenshot routing from setting.screenshotTranslateMode: explicit
+    // "vision"/"ocr" win; "auto" picks vision when the effective model looks
+    // vision-capable, OCR otherwise (or vision as the last resort, which then
+    // shows the vision-unsupported guidance error).
+    function effectiveScreenshotMode() {
+        const mode = setting.screenshotTranslateMode
+        if (mode === "vision" || mode === "ocr") {
+            return mode
+        }
+        if (setting.isLikelyVisionModel(setting.effectiveScreenshotVisionModel())) {
+            return "vision"
+        }
+        return ocrEngine.available ? "ocr" : "vision"
+    }
+
+    // Screenshot translation entry point. The image comes from
+    // ScreenshotCaptureService; the vision path uses the screenshot vision
+    // model override, the OCR path recognizes text first and then runs it
+    // through the normal text pipeline (mode forced to Translate).
     function startScreenshotTranslation(image) {
         translationService.abort()
+        visionService.abort()
+        ocrEngine.cancel()
         root.screenshotSession = true
         root.screenshotFailed = false
-        visionService.translateImage(image, {
-            "targetLanguage": langSelector.currentText,
-            "provider": setting.provider,
-            "apiServer": setting.apiServer,
-            "apiKey": setting.apiKey,
-            "model": setting.effectiveScreenshotVisionModel(),
-            "maxImageWidth": setting.screenshotMaxImageWidth,
-            "jpegQuality": setting.screenshotJpegQuality
-        })
+        if (effectiveScreenshotMode() === "ocr") {
+            if (!ocrEngine.available) {
+                showScreenshotError("OCR is not available on this system: the tesseract command was not found")
+                return
+            }
+            root.ocrBusy = true
+            ocrEngine.recognize(image)
+            return
+        }
+        visionService.translateImage(image,
+                                     effectiveScreenshotTargetLang(),
+                                     setting.provider,
+                                     setting.apiServer,
+                                     setting.apiKey,
+                                     setting.effectiveScreenshotVisionModel(),
+                                     setting.screenshotMaxImageWidth,
+                                     setting.screenshotJpegQuality)
     }
 
     // Capture failed before any request could be sent (portal unavailable,
@@ -106,20 +140,45 @@ Item {
         visionService.abort()
         root.screenshotSession = true
         root.screenshotFailed = true
+        root.lastRawError = message
+        root.errorDisplayed = true
         result.text = localizeError(message)
     }
 
     function showSelectionError(message) {
         translationService.abort()
         selectionUnavailable = true
+        root.lastRawError = message
+        root.errorDisplayed = true
         result.text = localizeError(message)
     }
 
     // Mode selector state is setting.translationMode (persisted); indexes
     // align with translationModeFromInt() (0=Translate, 1=ExplainWord,
     // 2=CorrectGrammar).
-    function getMode(){
-        return setting.translationMode
+    // True when the text contains CJK ideographs / Japanese kana / Korean
+    // hangul — the heuristic behind the "Auto" target-language direction.
+    function containsCjk(text) {
+        return /[\u3400-\u9fff\uf900-\ufaff\u3040-\u30ff\uac00-\ud7af]/.test(text)
+    }
+
+    // Resolves the effective target language for text translation. With the
+    // "Auto" selector entry (index 0), the direction follows the source
+    // script: CJK input → English, everything else → 简体中文.
+    function effectiveTargetLang(sourceText) {
+        if (langSelector.currentIndex !== 0) {
+            return langSelector.currentText
+        }
+        return containsCjk(sourceText) ? "English" : "简体中文"
+    }
+
+    // Auto direction for screenshots: the source text is not known up front,
+    // so follow the UI language (Chinese UI → 简体中文, otherwise English).
+    function effectiveScreenshotTargetLang() {
+        if (langSelector.currentIndex !== 0) {
+            return langSelector.currentText
+        }
+        return I18n.isChinese ? "简体中文" : "English"
     }
 
     // Per-mode translate-button label (mode selector drives the binding).
@@ -227,12 +286,35 @@ Item {
             }
         }
 
+        // History button: opens the recent-translations popup. Styled like
+        // the ✕ close button (muted → accent on hover).
+        Text {
+            id: historyButton
+            z: 1
+            height: 26
+            anchors.right: settingBtn.left
+            anchors.bottom: parent.bottom
+            anchors.rightMargin: 12
+            verticalAlignment: Text.AlignVCenter
+            text: I18n.t("History")
+            color: historyArea.containsMouse ? root.accentHover : root.mutedForeground
+            font.pixelSize: root.fontSizeSmall
+            font.weight: Font.DemiBold
+            MouseArea {
+                id: historyArea
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: historyPopup.open()
+            }
+        }
+
         Rectangle {
             id: statusPill
             anchors.top: parent.top
-            // 右上角依次是 ✕ 关闭和设置按钮，pill 让位到设置按钮左侧，
+            // 右上角依次是 ✕ 关闭、设置和历史按钮，pill 让位到历史按钮左侧，
             // 避免与 closeButton 交叠（曾出现 ✕ 直接压在状态文字上）
-            anchors.right: settingBtn.left
+            anchors.right: historyButton.left
             anchors.rightMargin: 8
             height: 18
             radius: 9
@@ -274,6 +356,137 @@ Item {
             implicitHeight: 18
         }
 
+    }
+
+    // Recent-translations popup. Entries come from the translationHistory
+    // context property (newest first); clicking one restores source + result
+    // into the panels. Lives in the window scene, so the outside-click
+    // dismiss logic treats it like any other in-window popup.
+    Popup {
+        id: historyPopup
+        z: 10
+        x: 10
+        y: 46
+        width: root.width - 20
+        height: Math.min(root.height - 90, historyColumn.implicitHeight + 20)
+        padding: 10
+        modal: false
+        dim: false
+        background: Rectangle {
+            radius: root.radius
+            color: root.panelColor
+            border.width: 1
+            border.color: root.borderActive
+        }
+        contentItem: Column {
+            id: historyColumn
+            spacing: 8
+
+            Item {
+                width: historyColumn.width
+                height: 22
+                Text {
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: I18n.t("History")
+                    color: root.accent
+                    font.pixelSize: root.fontSizeNormal
+                    font.weight: Font.DemiBold
+                }
+                Text {
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: translationHistory.entries.length > 0
+                    text: I18n.t("Clear")
+                    color: clearArea.containsMouse ? root.accentHover : root.mutedForeground
+                    font.pixelSize: root.fontSizeSmall
+                    font.weight: Font.DemiBold
+                    MouseArea {
+                        id: clearArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: translationHistory.clear()
+                    }
+                }
+            }
+
+            Text {
+                visible: translationHistory.entries.length === 0
+                width: historyColumn.width
+                horizontalAlignment: Text.AlignHCenter
+                text: I18n.t("No history yet")
+                color: root.mutedForeground
+                font.pixelSize: root.fontSizeSmall
+                topPadding: 18
+                bottomPadding: 18
+            }
+
+            ListView {
+                visible: translationHistory.entries.length > 0
+                width: historyColumn.width
+                height: Math.min(contentHeight, root.height - 160)
+                clip: true
+                spacing: 6
+                model: translationHistory.entries
+                delegate: Rectangle {
+                    width: ListView.view.width
+                    height: historyEntryColumn.implicitHeight + 14
+                    radius: 6
+                    color: entryArea.containsMouse ? Qt.alpha(root.accent, 0.14) : root.panelColorAlt
+                    border.width: 1
+                    border.color: root.border
+
+                    Column {
+                        id: historyEntryColumn
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.margins: 8
+                        spacing: 3
+                        Text {
+                            width: parent.width
+                            elide: Text.ElideRight
+                            maximumLineCount: 1
+                            text: modelData.type === "screenshot"
+                                  ? I18n.t("[Screenshot]")
+                                  : modelData.source.replace(/\s+/g, " ")
+                            color: root.mutedForeground
+                            font.pixelSize: root.fontSizeSmall
+                        }
+                        Text {
+                            width: parent.width
+                            elide: Text.ElideRight
+                            maximumLineCount: 2
+                            wrapMode: Text.Wrap
+                            text: modelData.result
+                            color: ThemeColors.foreground
+                            font.pixelSize: root.fontSizeSmall
+                        }
+                    }
+
+                    MouseArea {
+                        id: entryArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            if (modelData.type !== "screenshot" && modelData.source.length > 0) {
+                                inputArea.text = modelData.source
+                            }
+                            result.text = modelData.result
+                            root.screenshotSession = modelData.type === "screenshot"
+                            root.screenshotFailed = false
+                            root.errorDisplayed = false
+                            root.lastRawError = ""
+                            root.stopped = false
+                            root.selectionUnavailable = false
+                            historyPopup.close()
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // Text-translation mode selector: segmented control above the input.
@@ -539,6 +752,8 @@ Item {
         onClicked: {
             translationService.abort()
             visionService.abort()
+            ocrEngine.cancel()
+            root.ocrBusy = false
         }
         height:50
         background: Rectangle {
@@ -575,19 +790,27 @@ Item {
         anchors.bottom: parent.bottom
         anchors.left: parent.left
         anchors.margins: 10
-        model: ["简体中文", "繁体中文", "English", "Japanese", "German", "Korean", "Español", "français"]
-        // Restore the persisted target language; an empty/unknown stored
-        // value keeps the default first entry.
+        // The first entry is the localized "Auto" (direction follows the
+        // source script / UI language); the rest are native language names,
+        // deliberately not localized.
+        model: [I18n.t("Auto"), "简体中文", "繁体中文", "English", "Japanese", "German", "Korean", "Español", "français"]
+        // Restore the persisted target language. "Auto" is stored as the
+        // never-localized sentinel "__auto__" so a UI-language switch keeps
+        // the selection; an empty/unknown stored value falls back to it.
         Component.onCompleted: {
+            if (setting.targetLanguage === "__auto__") {
+                currentIndex = 0
+                return
+            }
             const idx = model.indexOf(setting.targetLanguage)
-            if (idx >= 0) {
+            if (idx > 0) {
                 currentIndex = idx
             }
         }
         // onActivated only fires for user picks, so restoring above does not
         // trigger a redundant config write.
         onActivated: {
-            setting.targetLanguage = currentText
+            setting.targetLanguage = currentIndex === 0 ? "__auto__" : currentText
             setting.updateConfig()
         }
     }
@@ -598,6 +821,8 @@ Item {
             result.text = ""
             root.stopped = false
             root.selectionUnavailable = false
+            root.errorDisplayed = false
+            root.lastRawError = ""
         }
         onResponseDataChanged: {
             if (responseError === "") {
@@ -606,8 +831,18 @@ Item {
         }
         onResponseErrorChanged: {
             if (responseError !== "") {
+                root.lastRawError = responseError
+                root.errorDisplayed = true
                 result.text = localizeError(responseError)
             }
+        }
+        onTranslationFinished: function(resultText) {
+            const fromScreenshot = root.screenshotSession
+            translationHistory.addEntry(fromScreenshot ? "screenshot" : "text",
+                                        fromScreenshot ? "" : inputArea.text,
+                                        resultText,
+                                        fromScreenshot ? root.effectiveScreenshotTargetLang()
+                                                       : root.effectiveTargetLang(inputArea.text))
         }
         onTranslationStopped: {
             // Keep the partial result visible, but distinguish it from Ready.
@@ -624,6 +859,8 @@ Item {
             result.text = ""
             root.stopped = false
             root.selectionUnavailable = false
+            root.errorDisplayed = false
+            root.lastRawError = ""
         }
         onResponseDataChanged: {
             if (responseError === "") {
@@ -632,11 +869,59 @@ Item {
         }
         onResponseErrorChanged: {
             if (responseError !== "") {
+                root.lastRawError = responseError
+                root.errorDisplayed = true
                 result.text = localizeError(responseError)
             }
         }
+        onTranslationFinished: function(resultText) {
+            translationHistory.addEntry("screenshot", "", resultText,
+                                        root.effectiveScreenshotTargetLang())
+        }
         onTranslationStopped: {
             root.stopped = true
+        }
+    }
+
+    // OCR leg completion: the recognized text continues through the normal
+    // text pipeline (mode forced to Translate). Superseded sessions (a text
+    // translation started meanwhile) drop late OCR results.
+    Connections {
+        target: ocrEngine
+        function onRecognized(text) {
+            root.ocrBusy = false
+            if (!root.screenshotSession) {
+                return
+            }
+            const trimmed = text.trim()
+            if (trimmed.length === 0) {
+                root.showScreenshotError("No text recognized in the screenshot")
+                return
+            }
+            inputArea.text = trimmed
+            visionService.abort()
+            translationService.translate(trimmed, root.effectiveScreenshotTargetLang(), 0,
+                                         setting.provider, setting.apiServer,
+                                         setting.apiKey, setting.model)
+        }
+        function onRecognitionFailed(message) {
+            root.ocrBusy = false
+            if (!root.screenshotSession) {
+                return
+            }
+            root.showScreenshotError(message)
+        }
+    }
+
+    // Errors are displayed through imperative assignments (bindings would be
+    // broken by streaming writes), so a live UI-language switch re-renders
+    // the currently shown error explicitly.
+    Connections {
+        target: I18n
+        function onLanguageChanged() {
+            if (root.errorDisplayed && !root.statusBusy && root.lastRawError !== "") {
+                result.text = root.localizeError(root.lastRawError)
+            }
         }
     }
 }

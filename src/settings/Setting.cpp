@@ -12,6 +12,14 @@
 #include <QDebug>
 
 #include "providers/ProviderDefaults.h"
+#include "settings/SecretStore.h"
+
+namespace {
+// Secret-store entry id for the OpenAI-compatible provider key (Ollama has
+// no key). Config marker key records that the key lives in the secret store.
+const char kSecretOpenAiApiKeyId[] = "openaiApiKey";
+const char kOpenAIApiKeyInStoreKey[] = "openaiApiKeyInSecretStore";
+}
 
 namespace {
 const char kConfigFileName[] = "config.json";
@@ -36,10 +44,17 @@ const char kScreenshotMaxImageWidthKey[] = "screenshotMaxImageWidth";
 const char kScreenshotJpegQualityKey[] = "screenshotJpegQuality";
 const char kTargetLanguageKey[] = "targetLanguage";
 const char kTranslationModeKey[] = "translationMode";
+const char kWindowWidthKey[] = "windowWidth";
+const char kWindowHeightKey[] = "windowHeight";
 const char kConfigVersionKey[] = "configVersion";
 constexpr int kConfigVersion = 2;
 constexpr int kDefaultMaxImageWidth = 1600;
 constexpr int kDefaultJpegQuality = 85;
+// Window-geometry bounds, aligned with main.qml's minimumWidth/Height.
+constexpr int kMinWindowWidth = 400;
+constexpr int kMaxWindowWidth = 3840;
+constexpr int kMinWindowHeight = 500;
+constexpr int kMaxWindowHeight = 2160;
 
 QStringList existingConfigCandidates()
 {
@@ -88,7 +103,15 @@ bool ensureConfigDirExists(const QString& configPath)
 }
 
 Setting::Setting(QObject* parent)
+    : Setting(parent, createPlatformSecretStore())
+{
+}
+
+Setting::~Setting() = default;
+
+Setting::Setting(QObject* parent, std::unique_ptr<SecretStore> secretStore)
     : QObject(parent)
+    , m_secretStore(std::move(secretStore))
 {
     // QString members default to empty; only the non-empty defaults need to
     // be spelled out here.
@@ -104,6 +127,9 @@ Setting::Setting(QObject* parent)
     // Translate mode). QString members default to empty; the int member of
     // Q_PROPERTY_AUTO is uninitialized unless spelled out here.
     _translationMode = 0;
+    // Window geometry: 0 = not set (QML falls back to its default geometry).
+    _windowWidth = 0;
+    _windowHeight = 0;
     // First launch (config without a displayLanguage key) follows the system
     // UI language; normalizedDisplayLanguage handles that fallback.
     _displayLanguage = normalizedDisplayLanguage(QString());
@@ -127,6 +153,12 @@ Setting::Setting(QObject* parent)
         }
     } else {
         updateConfig();
+    }
+    // A migrated API key left its plaintext in the just-loaded config;
+    // re-save now so the file no longer carries it.
+    if (m_apiKeyMigratedToStore) {
+        updateConfig();
+        m_apiKeyMigratedToStore = false;
     }
 }
 
@@ -191,6 +223,26 @@ bool Setting::loadConfig()
         _openaiApiKey = legacyApiKey;
     }
 
+    // Secret store (OS keychain) integration: the store wins over config
+    // plaintext; a plaintext-only key is migrated into the store once —
+    // verified by read-back — and cleared from the file on the re-save the
+    // constructor performs (m_apiKeyMigratedToStore). On any store failure
+    // the plaintext stays untouched (previous behavior).
+    if (m_secretStore && m_secretStore->isAvailable()) {
+        const QString storeId = QString::fromLatin1(kSecretOpenAiApiKeyId);
+        const QString storedKey = m_secretStore->read(storeId);
+        if (!storedKey.isEmpty()) {
+            _openaiApiKey = storedKey;
+        } else if (!_openaiApiKey.trimmed().isEmpty()) {
+            if (m_secretStore->write(storeId, _openaiApiKey)
+                && m_secretStore->read(storeId) == _openaiApiKey) {
+                m_apiKeyMigratedToStore = true;
+            } else {
+                qWarning() << "API key migration to the secret store failed; keeping config.json plaintext";
+            }
+        }
+    }
+
     _openaiModel = obj.value(kOpenAIModelKey).toString();
     if (_openaiModel.trimmed().isEmpty() && !obj.contains(kOpenAIModelKey)) {
         _openaiModel = _provider == "openai" && !legacyModel.trimmed().isEmpty()
@@ -230,6 +282,12 @@ bool Setting::loadConfig()
         _translationMode = 0;
     }
 
+    // Window geometry (absent/invalid = 0, QML falls back to its defaults).
+    const int windowWidth = obj.value(kWindowWidthKey).toInt(0);
+    _windowWidth = (windowWidth >= kMinWindowWidth && windowWidth <= kMaxWindowWidth) ? windowWidth : 0;
+    const int windowHeight = obj.value(kWindowHeightKey).toInt(0);
+    _windowHeight = (windowHeight >= kMinWindowHeight && windowHeight <= kMaxWindowHeight) ? windowHeight : 0;
+
     const QString parsedDisplayLanguage = normalizedDisplayLanguage(obj.value(kDisplayLanguageKey).toString());
     if (_displayLanguage != parsedDisplayLanguage) {
         _displayLanguage = parsedDisplayLanguage;
@@ -255,13 +313,34 @@ void Setting::updateConfig()
         return;
     }
 
+    // API key persistence: prefer the secret store (OS keychain); the
+    // plaintext copy is dropped only after a write verified by read-back.
+    // On any failure the key stays in config.json exactly as before.
+    QString apiKeyForConfig = _openaiApiKey;
+    bool keyInStore = false;
+    if (m_secretStore && m_secretStore->isAvailable()) {
+        const QString storeId = QString::fromLatin1(kSecretOpenAiApiKeyId);
+        if (_openaiApiKey.isEmpty()) {
+            keyInStore = m_secretStore->remove(storeId);
+        } else if (m_secretStore->write(storeId, _openaiApiKey)
+                   && m_secretStore->read(storeId) == _openaiApiKey) {
+            keyInStore = true;
+        }
+        if (keyInStore) {
+            apiKeyForConfig.clear();
+        } else {
+            qWarning() << "Secret store write failed; API key stays in config.json";
+        }
+    }
+
     QJsonObject obj{
         {kConfigVersionKey, kConfigVersion},
         {kShortCutKey, _shortCut},
         {kProviderKey, _provider},
         {kDisplayLanguageKey, _displayLanguage},
         {kOpenAIApiServerKey, _openaiApiServer},
-        {kOpenAIApiKeyKey, _openaiApiKey},
+        {kOpenAIApiKeyKey, apiKeyForConfig},
+        {kOpenAIApiKeyInStoreKey, keyInStore},
         {kOpenAIModelKey, _openaiModel},
         {kOllamaApiServerKey, _ollamaApiServer},
         {kOllamaModelKey, _ollamaModel},
@@ -272,6 +351,8 @@ void Setting::updateConfig()
         {kScreenshotJpegQualityKey, _screenshotJpegQuality},
         {kTargetLanguageKey, _targetLanguage},
         {kTranslationModeKey, _translationMode},
+        {kWindowWidthKey, _windowWidth},
+        {kWindowHeightKey, _windowHeight},
     };
 
     QSaveFile file(m_configPath);
