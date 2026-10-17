@@ -6,7 +6,7 @@ TransAI is a cross-platform AI-powered translation application built with Qt6 an
 ## Build Commands
 
 ### Prerequisites
-- Qt 6.9+ (tested with 6.11)
+- Qt 6.9+ (tested with 6.11), with Quick + Network + DBus (DBus is Linux-only, for portal screenshots)
 - CMake 3.16+
 - C++17 compatible compiler
 - X11 + XTest development libraries (Linux)
@@ -38,6 +38,7 @@ src/
 │   ├── ApplicationCommandServer.*  # Local socket server for single-instance commands
 ├── input/
 │   ├── GlobalShortcutManager.*     # QHotkey-based global hotkeys (QML type; disabled on Wayland)
+│   ├── GlobalClickMonitor.*        # Passive evdev BTN_LEFT observer for click-outside-to-hide on Wayland (context property; needs /dev/input read access)
 │   ├── SelectionTextProvider.*     # Selected-text extraction per platform (QML type)
 │   └── ClipboardGuard.*            # Save/restore clipboard around simulated copy
 ├── providers/
@@ -45,7 +46,7 @@ src/
 │   ├── ApiError.h                  # Shared OpenAI-style error-payload message extraction
 │   ├── ProviderEndpointBuilder.*   # Chat/models URL normalization per provider (static helpers)
 │   ├── ModelDiscoveryService.*     # /v1/models + ollama /api/tags detection (QML type)
-│   └── ThinkingPolicy.*            # Per-vendor "suppress thinking" request params
+│   └── ThinkingPolicy.*            # Automatic thinking-suppression policy (params + rejection retry)
 ├── settings/
 │   └── Setting.*                   # config.json load/save + active provider config
 ├── translation/
@@ -53,6 +54,13 @@ src/
 │   ├── StreamParser.*              # SSE chunk parser (OpenAI-compatible + raw JSON)
 │   ├── TranslationRequest.*        # Request struct + QVariantMap conversion
 │   └── PromptBuilder.*             # Per-mode system/user prompt construction
+├── capture/
+│   ├── ScreenshotCaptureService.*  # Unified screenshot entry (QML type): Wayland portal vs QScreen fallback
+│   └── PortalScreenshotBackend.*   # xdg-desktop-portal Screenshot over D-Bus (Linux/Wayland)
+├── vision/
+│   ├── VisionTranslationService.*  # Streaming multimodal chat client (QML type, mirrors TranslationService)
+│   ├── ImagePayloadBuilder.*       # QImage → scaled JPEG → base64 data URL (pure logic)
+│   └── VisionModelCapability.h     # Header-only vision-model id heuristic (UI hints/routing only)
 qml/
 ├── main.qml                        # Main window, tray, drag, shortcuts, command dispatch
 ├── AppView.qml                     # Translation interface
@@ -62,7 +70,8 @@ qml/
 ├── GTextEdit.qml                   # Flickable-based text editor
 ├── IconButton.qml                  # Image-based stateful button
 ├── ThemeColors.qml                 # Dark-palette singleton (registered in qmldir)
-└── qmldir                          # QML module registration
+├── I18n.qml                        # UI-language singleton (en / zh-CN, registered in qmldir)
+├── qmldir                          # QML module registration
 lib/                                # Third-party dependencies (QHotkey)
 docs/                               # Phased implementation blueprints
 scripts/                            # Windows build/publish scripts
@@ -80,24 +89,30 @@ scripts/                            # Windows build/publish scripts
 - **Theme Colors**: Single source of truth is the `ThemeColors` singleton (qml/ThemeColors.qml). Views alias needed tokens as readonly properties; do not hardcode palette hex values.
 - **Shared chrome**: Page backgrounds come from `AppBackground`; settings-page dropdowns use `ThemedComboBox`. Extend those components instead of copying their styles.
 - **Declarative state**: Avoid imperative assignments that break bindings (e.g. opacity driven by MouseArea state must stay a binding).
-- **Window Management**: `ensureWindowVisible()` keeps windows on screen; auto-hide on focus loss unless pinned
+- **Window Management**: `ensureWindowVisible()` keeps windows on screen; auto-hide is click-driven (see Window Management gotcha), Esc / ✕ always hide
 - **Platform Detection**: `Qt.platform.os` for platform-specific UI adjustments
 
 ### Settings Storage
 - Location: `QStandardPaths::AppConfigLocation` (`~/.config/TransAI/config.json` on Linux)
-- Format: JSON with `configVersion`; per-provider keys (`openaiApiServer/openaiApiKey/openaiModel`, `ollamaApiServer/ollamaModel`) plus active `provider`, `thinkingMode`, `shortCut`. Legacy top-level `apiKey/apiServer/model` are READ as one-way migration fallbacks but no longer written
+- Format: JSON with `configVersion`; per-provider keys (`openaiApiServer/openaiApiKey/openaiModel`, `ollamaApiServer/ollamaModel`) plus active `provider`, `shortCut`, `displayLanguage` (`en` / `zh-CN`; absent/empty falls back to the system UI language), and screenshot-translation keys (`screenshotShortCut`, `screenshotTranslateMode` = `auto`|`vision`, `screenshotVisionModel` (empty = follow current model), `screenshotMaxImageWidth` = 1600, `screenshotJpegQuality` = 85). Legacy top-level `apiKey/apiServer/model` are READ as one-way migration fallbacks but no longer written; the removed `thinkingMode` key is simply dropped on the next save
 - API keys are stored in plain text; the file is chmod 600 on Unix
 
 ### Single-Instance & Selection Translation
-- `TransAI --translate-selection` / `--background` / plain launch: command forwarded over a local socket (`$XDG_RUNTIME_DIR/transai-command`) to the running instance; first instance becomes the server
-- Wayland: QHotkey is disabled; users bind their own desktop hotkey to `TransAI --translate-selection`
+- `TransAI --translate-selection` / `--translate-screenshot` / `--background` / plain launch: command forwarded over a local socket (`$XDG_RUNTIME_DIR/transai-command`) to the running instance; first instance becomes the server
+- Wayland: QHotkey is disabled; users bind their own desktop hotkey to `TransAI --translate-selection` / `--translate-screenshot`
 - X11: selection read via simulated Ctrl+C with clipboard guard; Wayland: `wl-paste --primary` with Qt primary-selection fallback
+
+### Screenshot Translation (multimodal)
+- Flow: trigger (tray/hotkey/CLI) → hide window → `ScreenshotCaptureService` → `VisionTranslationService` streams into the shared result panel; the text and vision sessions abort each other so exactly one owns the panel
+- Wayland capture requires xdg-desktop-portal (system UI handles region selection); X11/Windows/macOS grab every screen and open the in-app fullscreen region-selection overlay (`qml/RegionSelectorWindow.qml`, one per screen; drag = select, Esc/right-click = cancel)
+- The vision request reuses provider/server/key/model with the `screenshotVisionModel` override (empty = follow current); image payloads never touch `PromptBuilder`, and QML never sees base64
+- Portal handle tokens must be valid D-Bus object-path elements — strip dashes from UUIDs
 
 ### API Communication
 - **Streaming**: SSE parsing with cross-chunk buffering; `[DONE]` handling; raw-JSON fallback for error bodies
 - **Timeouts**: 30s inactivity (translation), 15s (model detection)
 - **Error model**: one terminal signal per request (`translationFinished` / `translationFailed` / `translationStopped`)
-- **Thinking suppression**: `ThinkingPolicy` picks vendor-specific params (DeepSeek `thinking.type`, Qwen `enable_thinking`, Ollama `think`, OpenAI `reasoning_effort`) plus `/no_think` and direct-answer prompt hints
+- **Thinking suppression**: fully automatic (no user setting), three layers — `ThinkingPolicyBuilder` derives vendor params from provider/host/model id (DeepSeek `thinking.type`, Qwen `enable_thinking`, Ollama `think`, OpenAI `reasoning_effort`) plus `/no_think` and direct-answer prompt hints; `TranslationService` transparently retries once without the params when the endpoint rejects them (`ThinkingPolicyBuilder::isThinkingParamRejection`); `StreamParser` strips residual `<think>`-style blocks from the streamed content
 
 ## Important Gotchas
 
@@ -109,8 +124,8 @@ scripts/                            # Windows build/publish scripts
 5. **Headless platforms (offscreen/minimal/dummy)**: GlobalShortcutManager refuses registration there (QHotkey's X11 backend segfaults); smoke tests log a shortcutRegisterFailed instead of crashing
 
 ### Window Management
-- Always-on-top is enabled by default at startup; the pin toggle mutates `mainWindow.flags`
-- Main window hides with fade animation on focus loss (unless pinned)
+- The window starts unpinned (not always-on-top); the pin toggle mutates `mainWindow.flags` and opts into always-on-top
+- Auto-hide is click-driven, not focus-driven. The real "clicked outside" signal is `GlobalClickMonitor` (passive read-only evdev BTN_LEFT observation, context property `globalClickMonitor`). Telling an outside click from an in-window one is subtle: the `HoverHandler` in `main.qml` lies while an in-window popup (default `Popup.Item`, e.g. the model/provider dropdowns) is open — the popup captures hover, so clicks on it report `hovered=false` at the window root. `main.qml` therefore defers the hide decision ~120 ms after each evdev press (`outsideClickCheckTimer`) and consults `WindowDismissHelper::msecsSinceLastWindowPress()` — an event filter on the root window (`trackWindow()` in main.cpp) that timestamps every press delivered to the window. evdev usually wins the race against the compositor-forwarded window event, hence the deferral; a press paired with a recent in-window press (<250 ms) is never click-outside. This exists because Wayland clients receive NO event for clicks landing on other windows; it needs read access to pointer device nodes (uaccess rule, see docs/hyprland-integration.md) and degrades gracefully without it. Deactivation-driven hides still go through `tryAutoHide()` → `WindowDismissHelper::shouldHideOnDeactivate()`: X11 queries the X server's live button mask via `XQueryPointer` (hides only when the focus loss came from a left-click); Windows/macOS treat any deactivation as a click; Wayland hides only when the deactivation clearly was not caused by the pointer leaving (>300 ms after the last leave). Under focus-follows-mouse compositors (e.g. Hyprland `input:follow_mouse=1`) without evdev access the window survives mouse moves and is dismissed with Esc or the ✕ button
 
 ## Testing Strategy
 
@@ -153,7 +168,7 @@ scripts/                            # Windows build/publish scripts
 ### Code Organization
 - C++ backend logic with QML frontend; clear separation between services and UI
 - Resources embedded via Qt resource system (TransAI.qrc)
-- i18n: translator loading is wired in main.cpp but no .qm files are bundled yet; UI strings are largely untranslated (see TransAI_zh_CN.ts)
+- i18n: UI display language (English / 简体中文) is handled by the `qml/I18n.qml` singleton on top of `Setting.displayLanguage`; wrap user-visible QML strings in `I18n.t(...)` and add Chinese entries to its `_zhTable`. Deliberately outside the Qt Linguist toolchain (lupdate/lrelease are not available in every build environment), so no `.ts`/`.qm` files exist
 
 ## Common Development Tasks
 

@@ -56,7 +56,8 @@ bool looksLikeThinkingModel(const QString& model)
 //  - the /no_think prompt tag, a documented per-turn override that is safe on
 //    every Qwen endpoint.
 // Sending both layers at once guarantees suppression even when the upstream
-// only honors one of them; unknown fields are ignored by the rest.
+// only honors one of them; unknown fields are ignored by the rest (and the
+// rejected-parameter retry in TranslationService covers strict endpoints).
 void applyQwenPolicy(ThinkingPolicy& policy)
 {
     policy.bodyParams.insert("enable_thinking", false);
@@ -65,60 +66,12 @@ void applyQwenPolicy(ThinkingPolicy& policy)
 
 } // namespace
 
-QString ThinkingPolicyBuilder::normalizeThinkingMode(const QString& mode)
-{
-    const QString normalized = mode.trimmed().toLower();
-    if (normalized == QLatin1String("qwen") || normalized == QLatin1String("deepseek")
-        || normalized == QLatin1String("openai") || normalized == QLatin1String("ollama")
-        || normalized == QLatin1String("manual")) {
-        return normalized;
-    }
-    if (normalized == QLatin1String("none")) {
-        return QLatin1String("manual");
-    }
-    return QLatin1String("auto");
-}
-
-ThinkingPolicy ThinkingPolicyBuilder::build(const QString& provider, const QString& apiServer, const QString& model, const QString& mode)
+ThinkingPolicy ThinkingPolicyBuilder::build(const QString& provider, const QString& apiServer, const QString& model)
 {
     ThinkingPolicy policy;
 
-    // normalizeThinkingMode is the single validation point for mode strings
-    // crossing the config/QVariantMap boundaries; build() relies on it so raw
-    // input ("none", empty, casing) gets the same mapping everywhere.
-    const QString modeKey = normalizeThinkingMode(mode);
-    // Manual mode: send the request untouched.
-    if (modeKey == QLatin1String("manual")) {
-        return policy;
-    }
-
     const QString m = model.toLower();
     const QString normalizedProvider = provider.trimmed().toLower();
-
-    // Forced vendor profiles: apply the vendor's thinking controls regardless
-    // of the model id. Needed when the model id is a relay alias (e.g.
-    // "LocalModel" on a NewAPI gateway) that hides the real model family.
-    if (modeKey != QLatin1String("auto")) {
-        if (normalizedProvider == QLatin1String("ollama") || modeKey == QLatin1String("ollama")) {
-            // Ollama: `think: false` is understood by the OpenAI-compatible
-            // endpoint too and ignored by non-thinking models.
-            policy.bodyParams.insert("think", false);
-        } else if (modeKey == QLatin1String("qwen")) {
-            applyQwenPolicy(policy);
-        } else if (modeKey == QLatin1String("deepseek")) {
-            if (isDeepSeekReasonerModel(m)) {
-                policy.noThinkTag = true;
-            } else {
-                policy.bodyParams.insert("thinking", QJsonObject({ { "type", "disabled" } }));
-                policy.noThinkTag = true;
-            }
-        } else if (modeKey == QLatin1String("openai")) {
-            policy.bodyParams.insert("reasoning_effort", "low");
-        }
-        // Unknown profile: validated upstream, keep the request untouched.
-        return policy;
-    }
-
     const QString host = QUrl(apiServer).host().toLower();
 
     // 1) Ollama: `think: false` disables thinking on supported models
@@ -172,4 +125,39 @@ ThinkingPolicy ThinkingPolicyBuilder::build(const QString& provider, const QStri
     }
 
     return policy;
+}
+
+bool ThinkingPolicyBuilder::isThinkingParamRejection(const QString& errorMessage)
+{
+    if (errorMessage.trimmed().isEmpty()) {
+        return false;
+    }
+
+    // The thinking-related request fields this app may add (lowercase;
+    // "think" also matches "thinking" / "enable_thinking" mentions).
+    static const QStringList kParamNames = {
+        QStringLiteral("enable_thinking"), QStringLiteral("reasoning_effort"),
+        QStringLiteral("reasoning"), QStringLiteral("thinking"), QStringLiteral("think"),
+    };
+
+    // Error-message phrases that indicate a request field was rejected as
+    // unknown/unsupported (FastAPI/pydantic relays, OpenAI, generic gateways).
+    static const QStringList kRejectionPhrases = {
+        QStringLiteral("unknown parameter"),
+        QStringLiteral("unexpected parameter"),
+        QStringLiteral("unrecognized"),
+        QStringLiteral("extra fields not permitted"),
+        QStringLiteral("extra inputs are not permitted"),
+        QStringLiteral("extra_forbidden"),
+        QStringLiteral("invalid parameter"),
+        QStringLiteral("unsupported parameter"),
+        QStringLiteral("not supported"),
+        QStringLiteral("does not support"),
+        QStringLiteral("not allowed"),
+    };
+
+    // Both a parameter name and a rejection phrase must appear: a bare
+    // rejection phrase (e.g. "streaming not supported") must not trigger a
+    // retry, and a bare parameter mention alone proves nothing either.
+    return containsAny(errorMessage, kParamNames) && containsAny(errorMessage, kRejectionPhrases);
 }

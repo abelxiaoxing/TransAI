@@ -5,9 +5,11 @@
 #include <QString>
 
 // Describes how to suppress or minimize model "thinking" (reasoning) output
-// for a given provider / endpoint / model combination.
+// for a given provider / endpoint / model combination. Fully automatic: the
+// policy is derived from the provider, endpoint host and model id; there is
+// deliberately no user-facing setting.
 //
-// Thinking suppression works on two levels:
+// Thinking suppression works on three layers:
 //  1. API parameters (bodyParams): provider-specific request fields such as
 //     {"thinking": {"type": "disabled"}} for DeepSeek chat,
 //     {"enable_thinking": false} for Qwen3,
@@ -18,6 +20,10 @@
 //  2. Prompt level: an optional "/no_think" tag (DeepSeek R1 reasoners) and/or
 //     a "answer directly, no reasoning steps" hint appended to the system
 //     prompt. Prompt-level instructions are safe for any model.
+//  3. Output level (elsewhere): StreamParser strips <think>...</think> blocks
+//     that still slip through (relay model aliases, models ignoring the
+//     parameters), and isThinkingParamRejection() lets TranslationService
+//     retry once without the bodyParams when a strict endpoint rejects them.
 struct ThinkingPolicy
 {
     // Extra JSON fields merged into the chat-completion request body.
@@ -39,26 +45,18 @@ struct ThinkingPolicy
 class ThinkingPolicyBuilder
 {
 public:
-    // Canonical thinking modes (the only accepted values, see
-    // normalizeThinkingMode):
-    //   "auto"    - detect the model family from the model id (recommended, default)
-    //   "qwen"    - force Qwen3 controls (enable_thinking=false + /no_think)
-    //   "deepseek"- force DeepSeek controls (thinking.type=disabled / /no_think)
-    //   "openai"  - force OpenAI o-series controls (reasoning_effort=low)
-    //   "ollama"  - force Ollama controls (think=false)
-    //   "manual"  - never add thinking-related parameters (request sent as-is)
-    //
-    // Forced profiles are useful when the model id is a relay alias (e.g.
-    // "LocalModel" on a NewAPI gateway) that hides the real model family.
-    //
-    // `mode` may be raw/un-normalized; it is passed through
-    // normalizeThinkingMode internally ("none" -> manual, empty/unknown -> auto).
-    static ThinkingPolicy build(const QString& provider, const QString& apiServer, const QString& model, const QString& mode);
+    // Detects the model family from the model id / endpoint host and returns
+    // the matching suppression policy (see the ThinkingPolicy comment for the
+    // three layers). Always "auto": unknown models are left to the prompt and
+    // output-level layers, which are safe for any model.
+    static ThinkingPolicy build(const QString& provider, const QString& apiServer, const QString& model);
 
-    // Single validation point for the thinking-mode string crossing the
-    // config file / QVariantMap boundaries. Maps "none" to "manual" and
-    // empty or unknown values to "auto".
-    static QString normalizeThinkingMode(const QString& mode);
+    // True when an error message indicates the endpoint rejected one of the
+    // thinking-related request fields (e.g. strict OpenAI-compatible relays
+    // answer 400 "Extra fields not permitted" / "Unknown parameter" for
+    // unknown JSON fields). TranslationService uses it to transparently retry
+    // once without the parameters before surfacing the failure.
+    static bool isThinkingParamRejection(const QString& errorMessage);
 };
 
 #endif // THINKING_POLICY_H

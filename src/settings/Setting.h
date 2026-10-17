@@ -5,18 +5,32 @@
 #include <QString>
 
 #include "providers/ProviderDefaults.h"
+#include "vision/VisionModelCapability.h"
 #include "PropertyMacros.h"
 
 class Setting : public QObject
 {
     Q_OBJECT
     Q_PROPERTY_AUTO(QString, shortCut);
-    Q_PROPERTY_AUTO(QString, thinkingMode);
+    // UI display language: "en" or "zh-CN" (already normalized; see
+    // normalizedDisplayLanguage). QML's I18n singleton reads it and swaps
+    // every bound string live, so no restart is needed after a change.
+    Q_PROPERTY_AUTO(QString, displayLanguage);
     Q_PROPERTY_AUTO(QString, openaiApiServer);
     Q_PROPERTY_AUTO(QString, openaiApiKey);
     Q_PROPERTY_AUTO(QString, openaiModel);
     Q_PROPERTY_AUTO(QString, ollamaApiServer);
     Q_PROPERTY_AUTO(QString, ollamaModel);
+
+    // Screenshot (multimodal) translation. Empty screenshotShortCut means
+    // "not configured" (no hotkey is registered). screenshotTranslateMode is
+    // "auto" | "vision" ("ocr" is reserved for a later phase). An empty
+    // screenshotVisionModel means "follow the current translation model".
+    Q_PROPERTY_AUTO(QString, screenshotShortCut);
+    Q_PROPERTY_AUTO(QString, screenshotTranslateMode);
+    Q_PROPERTY_AUTO(QString, screenshotVisionModel);
+    Q_PROPERTY_AUTO(int, screenshotMaxImageWidth);
+    Q_PROPERTY_AUTO(int, screenshotJpegQuality);
 
     // Active-provider view, computed on demand from the per-provider values
     // above. No members and no NOTIFY signals: QML only reads these
@@ -35,6 +49,12 @@ class Setting : public QObject
 
 public:
     explicit Setting(QObject* parent = nullptr);
+
+    // Maps any stored value onto the supported UI languages. "en" wins
+    // verbatim; everything else — empty/unknown values included — resolves
+    // zh* locales (stored or, when the value is empty, the system locale) to
+    // "zh-CN" and all remaining locales to "en".
+    static QString normalizedDisplayLanguage(const QString& language);
 
     // Empty stored values fall back to the provider defaults, mirroring the
     // request-time fallback in TranslationService/ModelDiscoveryService.
@@ -66,6 +86,21 @@ public:
     Q_INVOKABLE bool hasPlausibleApiKey(const QString& apiKey) const
     {
         return ProviderDefaults::isPlausibleApiKey(apiKey);
+    }
+
+    // Heuristic (non-blocking) check used by the settings UI to warn when
+    // the effective screenshot model probably cannot accept image input.
+    Q_INVOKABLE bool isLikelyVisionModel(const QString& modelId) const
+    {
+        return VisionModelCapability::isLikelyVisionModel(modelId);
+    }
+
+    // Model actually used for screenshot translation: the explicit override
+    // when set, otherwise the active provider's current model.
+    Q_INVOKABLE QString effectiveScreenshotVisionModel() const
+    {
+        const QString overrideModel = _screenshotVisionModel.trimmed();
+        return overrideModel.isEmpty() ? model() : overrideModel;
     }
 
     Q_INVOKABLE bool loadConfig();

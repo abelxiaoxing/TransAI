@@ -40,6 +40,7 @@ endif()
 set(HEADERS
     src/PropertyMacros.h
     src/app/ApplicationCommandServer.h
+    src/app/WindowDismissHelper.h
     src/settings/Setting.h
     src/translation/TranslationRequest.h
     src/translation/PromptBuilder.h
@@ -51,12 +52,19 @@ set(HEADERS
     src/providers/ModelDiscoveryService.h
     src/providers/ThinkingPolicy.h
     src/input/GlobalShortcutManager.h
+    src/input/GlobalClickMonitor.h
     src/input/ClipboardGuard.h
     src/input/SelectionTextProvider.h
+    src/capture/ScreenshotCaptureService.h
+    src/capture/PortalScreenshotBackend.h
+    src/vision/ImagePayloadBuilder.h
+    src/vision/VisionModelCapability.h
+    src/vision/VisionTranslationService.h
 )
 set(SOURCES
     src/main.cpp
     src/app/ApplicationCommandServer.cpp
+    src/app/WindowDismissHelper.cpp
     src/settings/Setting.cpp
     src/translation/TranslationRequest.cpp
     src/translation/PromptBuilder.cpp
@@ -66,8 +74,13 @@ set(SOURCES
     src/providers/ModelDiscoveryService.cpp
     src/providers/ThinkingPolicy.cpp
     src/input/GlobalShortcutManager.cpp
+    src/input/GlobalClickMonitor.cpp
     src/input/ClipboardGuard.cpp
     src/input/SelectionTextProvider.cpp
+    src/capture/ScreenshotCaptureService.cpp
+    src/capture/PortalScreenshotBackend.cpp
+    src/vision/ImagePayloadBuilder.cpp
+    src/vision/VisionTranslationService.cpp
 )
 
 set(RESOURCES
@@ -138,12 +151,15 @@ IF (CMAKE_SYSTEM_NAME MATCHES "Windows")
 ELSEIF (CMAKE_SYSTEM_NAME MATCHES "Linux")
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(XTST REQUIRED xtst)
+    # Wayland screenshot capture goes through xdg-desktop-portal over D-Bus.
+    find_package(Qt6 REQUIRED COMPONENTS DBus)
     target_include_directories(TransAI PRIVATE ${X11_INCLUDE_DIR} ${XTST_INCLUDE_DIRS})
 
     target_link_libraries(TransAI
         PRIVATE
         Qt6::Quick
         Qt6::Network
+        Qt6::DBus
 
         qhotkey
         ${X11_LIBRARIES}

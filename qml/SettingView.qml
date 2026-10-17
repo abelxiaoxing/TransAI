@@ -9,16 +9,44 @@ Item {
     property bool ready: false
     property string selectedProvider: "openai"
     property bool openModelPopupAfterDetect: false
+    // 下拉过滤器：仅在弹窗展开期间由输入更新。不变式：弹窗关闭时恒为 ""
+    // （onClosed 与每次打开前都会重置），因此点击打开总是展示完整列表。
+    property string modelFilter: ""
+    // modelPopup 最近一次关闭的时间戳（ms）。弹窗展开时点击输入框/箭头，按下会
+    // 先通过 CloseOnPressOutside 关闭弹窗；该门控阻止同一次点击的抬起再把它打开，
+    // 使点击表现为开关切换（无论弹窗遮罩是吃掉还是透传这次按下都成立）。
+    property real modelPopupClosedAt: 0
     // Single source of truth for the model name: the input field itself.
     // (Previously a separate property mirrored the text, which forced manual
     // re-sync everywhere because the text binding broke on first user input.)
     property alias selectedModel: modelInput.text
+    // 下拉列表数据源：已探测模型按 modelFilter 做大小写不敏感的子串过滤
+    property var filteredModels: {
+        const all = modelDetector.availableModels
+        const needle = modelFilter.trim().toLowerCase()
+        if (needle.length === 0) {
+            return all
+        }
+        const out = []
+        for (var i = 0; i < all.length; ++i) {
+            if (all[i].toLowerCase().indexOf(needle) !== -1) {
+                out.push(all[i])
+            }
+        }
+        return out
+    }
     property string autoDetectServer: ""
     property string autoDetectKey: ""
     property string autoDetectProvider: ""
     property string shortcutBeforeRecording: ""
     property bool shortcutRecordingAccepted: false
     property QtObject shortcutRegistrar: null
+    // Same contract as shortcutRegistrar, but for the screenshot action
+    // (main.qml wires it to the "translateScreenshot" action id).
+    property QtObject screenshotShortcutRegistrar: null
+    // Screenshot translation card state (vision model override + advanced).
+    property string selectedVisionModel: ""
+    property bool advancedExpanded: false
     // Bound from main.qml (GlobalShortcutManager.hotkeysSupported). False on
     // Wayland/headless, where the recorder is replaced by an explanation.
     property bool hotkeysSupported: true
@@ -26,9 +54,6 @@ Item {
     // here when registration fails outside a recording session.
     property string hotkeyError: ""
     readonly property bool isOllamaProvider: selectedProvider === "ollama"
-    // Single source of truth for the thinking-mode list; the index order must
-    // match the thinkingCombo model below.
-    readonly property var thinkingModes: ["auto", "qwen", "deepseek", "openai", "ollama", "manual"]
     // Defaults live in ProviderDefaults (C++); Setting re-exposes them so the
     // UI never hardcodes URLs or model names in parallel.
     readonly property string defaultOllamaApiServer: setting.defaultOllamaApiServer
@@ -53,14 +78,16 @@ Item {
     readonly property color fieldColorFocus: ThemeColors.fieldColorFocus
     readonly property color rowHighlightColor: ThemeColors.rowHighlightColor
     readonly property color cardColor: ThemeColors.cardColor
-    readonly property int fontSizeLabel: 12
-    readonly property int fontSizeSmall: 13
+    readonly property int fontSizeLabel: 13
+    readonly property int fontSizeSmall: 14
     readonly property int fontSizeNormal: 15
     readonly property int fontSizeLarge: 17
     readonly property int fontSizeTitle: 21
     readonly property real radius: 10
     readonly property real radiusLarge: 16
     readonly property int controlHeight: 40
+    // 控件列的起始 x：所有行内控件从这一列对齐到右缘，形成稳定的两栏节奏
+    readonly property real fieldColumnX: 120
 
     function providerFromIndex(index) {
         return index === 1 ? "ollama" : "openai"
@@ -70,13 +97,14 @@ Item {
         return provider === "ollama" ? 1 : 0
     }
 
-    function thinkingModeFromIndex(index) {
-        return root.thinkingModes[index] || "auto"
+    // Display-language combo mapping; the index order must match the
+    // languageCombo model below (native names stay untranslated on purpose).
+    function displayLanguageFromIndex(index) {
+        return index === 1 ? "zh-CN" : "en"
     }
 
-    function thinkingIndex(mode) {
-        const i = root.thinkingModes.indexOf(mode)
-        return i >= 0 ? i : 0
+    function displayLanguageIndex(language) {
+        return language === "zh-CN" ? 1 : 0
     }
 
     // Server used for detection requests: the typed value, else the provider
@@ -116,6 +144,16 @@ Item {
         // （重复推导曾导致两处逻辑漂移的风险）。
         applyProviderSettings(selectedProvider)
         shortcutText.text = setting.shortCut
+        languageCombo.currentIndex = displayLanguageIndex(setting.displayLanguage)
+
+        // Screenshot translation card backfill.
+        selectedVisionModel = setting.screenshotVisionModel
+        const choices = visionModelChoices()
+        visionModelCombo.currentIndex = Math.max(0, choices.indexOf(
+            selectedVisionModel.trim().length > 0 ? selectedVisionModel.trim() : choices[0]))
+        screenshotShortcutField.shortcut = setting.screenshotShortCut
+        maxWidthInput.text = String(setting.screenshotMaxImageWidth)
+        jpegQualityInput.text = String(setting.screenshotJpegQuality)
 
         ready = true
         Qt.callLater(function() {
@@ -139,10 +177,33 @@ Item {
             setting.openaiModel = selectedModel.trim().length > 0 ? selectedModel.trim() : defaultOpenAiModel
         }
         setting.shortCut = shortcutText.text
+        setting.displayLanguage = displayLanguageFromIndex(languageCombo.currentIndex)
+        // Screenshot translation. The mode key stays at its loaded/default
+        // value ("auto"); only the vision model override, hotkey and advanced
+        // image options are user-facing for now.
+        setting.screenshotVisionModel = selectedVisionModel.trim()
+        setting.screenshotShortCut = screenshotShortcutField.shortcut
+        if (maxWidthInput.acceptableInput) {
+            setting.screenshotMaxImageWidth = parseInt(maxWidthInput.text)
+        }
+        if (jpegQualityInput.acceptableInput) {
+            setting.screenshotJpegQuality = parseInt(jpegQualityInput.text)
+        }
         setting.applyProviderConfig(selectedProvider)
         setting.updateConfig()
         savedHint.opacity = 1
         savedTimer.restart()
+    }
+
+    // Vision-model combo entries: "follow current" first, then the stored
+    // override (when absent from the detected list) and the detected models.
+    function visionModelChoices() {
+        const choices = [I18n.t("Follow current model")]
+        const stored = selectedVisionModel.trim()
+        if (stored.length > 0 && modelDetector.availableModels.indexOf(stored) === -1) {
+            choices.push(stored)
+        }
+        return choices.concat(modelDetector.availableModels)
     }
 
     // Debounced save for text inputs: writes at most once per pause in typing
@@ -164,6 +225,26 @@ Item {
 
     function detectModels() {
         modelDetector.detectModels(effectiveServer(), keyInput.text, selectedProvider)
+    }
+
+    // 统一的下拉打开入口：先重置过滤器，保证点击打开时总是展示完整列表
+    // （按过滤器不变式，弹窗正常关闭后此处本就为空，属于防御性重置）。
+    function openModelPopup() {
+        modelFilter = ""
+        modelPopup.open()
+    }
+
+    // 点击模型输入框：列表就绪则直接展开；为空则触发一次探测，由
+    // openModelPopupAfterDetect 在结果到达后自动展开。探测进行中、或
+    // OpenAI key 明显不可用时不动作（页面已有对应的错误提示）。
+    function handleModelFieldTap() {
+        if (modelDetector.availableModels.length > 0) {
+            openModelPopup()
+        } else if (!modelDetector.isDetecting
+                   && (isOllamaProvider || setting.hasPlausibleApiKey(keyInput.text.trim()))) {
+            openModelPopupAfterDetect = true
+            detectModels()
+        }
     }
 
     function queueAutoDetectModels() {
@@ -231,6 +312,7 @@ Item {
         anchors.fill: parent
         onClicked: {
             shortcutRect.focus = false
+            screenshotShortcutField.focus = false
             if (shortcutText.text.length > 0 && shortcutRegistrar !== null) {
                 shortcutRegistrar.setShortcut(shortcutText.text)
             }
@@ -254,7 +336,7 @@ Item {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
-            spacing: 12
+            spacing: 10
 
             Item {
                 id: header
@@ -283,7 +365,7 @@ Item {
                         id: settingTitle
                         anchors.left: parent.left
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "Settings"
+                        text: I18n.t("Settings")
                         color: foreground
                         font.pixelSize: fontSizeTitle
                         font.bold: true
@@ -295,7 +377,7 @@ Item {
                         anchors.right: statusRow.left
                         anchors.rightMargin: 10
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "Saved ✓"
+                        text: I18n.t("Saved ✓")
                         color: accent
                         font.pixelSize: fontSizeLabel
                         opacity: 0
@@ -309,12 +391,12 @@ Item {
                         spacing: 8
 
                         StatusPill {
-                            label: selectedProvider === "ollama" ? "LOCAL" : "CLOUD"
+                            label: selectedProvider === "ollama" ? I18n.t("LOCAL") : I18n.t("CLOUD")
                             dotColor: selectedProvider === "ollama" ? accentPurple : accent
                         }
 
                         StatusPill {
-                            label: selectedModel.trim().length > 0 ? selectedModel.trim() : "NO MODEL"
+                            label: selectedModel.trim().length > 0 ? selectedModel.trim() : I18n.t("NO MODEL")
                             dotColor: modelDetector.error !== "" ? root.error : accent
                             width: Math.min(170, implicitWidth)
                         }
@@ -323,19 +405,34 @@ Item {
             }
 
             SettingsCard {
-                title: "AI Provider"
-                subtitle: "Where translation requests are processed."
+                title: I18n.t("Language")
 
-                Column {
+                headerData: ThemedComboBox {
+                    id: languageCombo
                     width: parent.width
-                    spacing: 6
+                    // Language names always stay in their native language.
+                    model: ["English", "简体中文"]
+                    currentIndex: displayLanguageIndex(setting.displayLanguage)
 
-                    FieldLabel { text: "PROVIDER" }
+                    // Switching updates setting.displayLanguage; the I18n
+                    // singleton follows it and re-evaluates every bound
+                    // string live. saveConfig persists the change.
+                    onActivated: function(index) {
+                        saveConfig()
+                    }
+                }
+            }
+
+            SettingsCard {
+                title: I18n.t("AI Provider")
+
+                SettingsRow {
+                    label: I18n.t("PROVIDER")
 
                     ThemedComboBox {
                         id: providerCombo
                         width: parent.width
-                        model: ["OpenAI / Compatible API", "Ollama (Local)"]
+                        model: [I18n.t("OpenAI / Compatible API"), I18n.t("Ollama (Local)")]
                         currentIndex: 0
 
                         // onActivated 仅在用户交互时触发；reload() 的程序化赋值
@@ -353,11 +450,8 @@ Item {
                     }
                 }
 
-                Column {
-                    width: parent.width
-                    spacing: 6
-
-                    FieldLabel { text: "API SERVER" }
+                SettingsRow {
+                    label: I18n.t("API SERVER")
 
                     TextField {
                         id: serverInput
@@ -386,12 +480,9 @@ Item {
                     }
                 }
 
-                Column {
-                    width: parent.width
-                    spacing: 6
+                SettingsRow {
+                    label: I18n.t("API KEY")
                     visible: !isOllamaProvider
-
-                    FieldLabel { text: "API KEY" }
 
                     Item {
                         width: parent.width
@@ -430,7 +521,7 @@ Item {
                             anchors.rightMargin: 14
                             anchors.verticalCenter: parent.verticalCenter
                             visible: keyInput.text.length > 0
-                            text: show ? "Hide" : "Show"
+                            text: show ? I18n.t("Hide") : I18n.t("Show")
                             color: keyToggleArea.containsMouse ? accentHover : mutedForeground
                             font.pixelSize: fontSizeSmall
                             font.weight: Font.DemiBold
@@ -445,39 +536,35 @@ Item {
                             }
                         }
                     }
+                }
 
-                    Text {
-                        width: parent.width
-                        readonly property string trimmedKey: keyInput.text.trim()
-                        visible: trimmedKey.length === 0 || !setting.hasPlausibleApiKey(trimmedKey)
-                        text: trimmedKey.length === 0
-                              ? "Required — paste the API key for your provider."
-                              : "This key doesn't look like a typical API key. Double-check it if requests fail."
-                        color: trimmedKey.length === 0 ? root.error : root.warning
-                        font.pixelSize: fontSizeLabel
-                        wrapMode: Text.WordWrap
-                    }
+                Text {
+                    width: parent.width
+                    // 缩进到控件列：提示从属于密钥输入框，与其左缘对齐，
+                    // 保持卡片的两栏节奏不被顶格文字打断。
+                    leftPadding: root.fieldColumnX
+                    readonly property string trimmedKey: keyInput.text.trim()
+                    visible: !isOllamaProvider && (trimmedKey.length === 0 || !setting.hasPlausibleApiKey(trimmedKey))
+                    text: trimmedKey.length === 0
+                          ? I18n.t("Required — paste the API key for your provider.")
+                          : I18n.t("This key doesn't look like a typical API key. Double-check it if requests fail.")
+                    color: trimmedKey.length === 0 ? root.error : root.warning
+                    font.pixelSize: fontSizeLabel
+                    wrapMode: Text.WordWrap
                 }
             }
 
             SettingsCard {
-                title: "Model"
-                subtitle: "Which model answers, and how its reasoning output is handled."
+                title: I18n.t("Model")
 
-                Column {
+                headerData: Row {
                     width: parent.width
-                    spacing: 6
+                    spacing: 8
 
-                    FieldLabel { text: "MODEL" }
-
-                    Row {
-                        width: parent.width
-                        spacing: 8
-
-                        Item {
-                            id: modelRow
-                            width: parent.width - detectButton.width - 8
-                            height: controlHeight
+                    Item {
+                        id: modelRow
+                        width: parent.width - detectButton.width - 8
+                        height: controlHeight
 
                             TextField {
                                 id: modelInput
@@ -491,6 +578,35 @@ Item {
                                     if (ready) {
                                         saveConfigSoon()
                                     }
+                                    // 下拉展开时输入即过滤（自动补全）；activeFocus 门控
+                                    // 避免程序化回填（reload / 切换 provider / 选中项）改动过滤器。
+                                    if (modelPopup.opened && activeFocus) {
+                                        root.modelFilter = text
+                                    }
+                                }
+
+                                // Enter 直接采纳过滤结果：优先完全匹配，否则取第一条。
+                                Keys.onPressed: (event) => {
+                                    if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
+                                        && modelPopup.opened && root.filteredModels.length > 0) {
+                                        const exact = root.filteredModels.indexOf(text.trim())
+                                        selectedModel = exact >= 0 ? root.filteredModels[exact] : root.filteredModels[0]
+                                        modelPopup.close()
+                                        saveConfig()
+                                        event.accepted = true
+                                    }
+                                }
+
+                                // 可编辑下拉框交互：点击输入框即展开下拉；列表为空时改为触发
+                                // 一次探测并在结果到达后自动展开。弹窗展开时同一次点击的按下会
+                                // 先被 CloseOnPressOutside 用来关闭弹窗，时间戳门控保证抬起不会
+                                // 再打开，因此点击表现为开关切换。
+                                TapHandler {
+                                    onTapped: {
+                                        if (Date.now() - root.modelPopupClosedAt > 250) {
+                                            root.handleModelFieldTap()
+                                        }
+                                    }
                                 }
 
                                 background: Rectangle {
@@ -502,7 +618,7 @@ Item {
                                 }
 
                                 // 自绘占位提示：Material 风格的 placeholderText 会浮动到
-                                // 控件上方，与本页自带的 FieldLabel 重复且视觉断裂。
+                                // 控件上方，与本页行内标签的排版重复且视觉断裂。
                                 Text {
                                     anchors.left: parent.left
                                     anchors.right: parent.right
@@ -511,8 +627,8 @@ Item {
                                     anchors.verticalCenter: parent.verticalCenter
                                     visible: modelInput.text.length === 0 && !modelInput.activeFocus
                                     text: modelDetector.availableModels.length > 0
-                                          ? "Select from the list, or type a name"
-                                          : "Type a model name, or detect from the server"
+                                          ? I18n.t("Select from the list, or type a name")
+                                          : I18n.t("Type a model name, or detect from the server")
                                     color: subtleForeground
                                     font.pixelSize: fontSizeNormal
                                     elide: Text.ElideRight
@@ -535,7 +651,115 @@ Item {
                                     anchors.margins: -8
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
-                                    onClicked: modelPopup.opened ? modelPopup.close() : modelPopup.open()
+                                    onClicked: {
+                                        // 与输入框点击共用时间戳门控：这次按下若已通过
+                                        // CloseOnPressOutside 关闭了弹窗，不再重新打开。
+                                        if (modelPopup.opened) {
+                                            modelPopup.close()
+                                        } else if (Date.now() - root.modelPopupClosedAt > 250) {
+                                            root.openModelPopup()
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 下拉列表以输入框为锚（Popup 的 parent 即 modelRow）：x 恒为 0、
+                            // y 恒相对输入框，布局变化或页面滚动时始终与输入框左缘对齐，
+                            // 不会像旧的 mapToItem 绑定那样只求值一次后失效。
+                            Popup {
+                                id: modelPopup
+                                // 展开方向与高度上限在打开瞬间（onAboutToShow）按窗口内
+                                // 上/下方可用空间计算：下方放不下完整列表且上方更宽敞时
+                                // 向上展开；高度收敛到可用空间内，避免被窗口边缘裁剪。
+                                property bool openUpward: false
+                                property real listMaxHeight: 260
+
+                                x: 0
+                                y: openUpward ? -implicitHeight - 6 : modelRow.height + 6
+                                width: modelRow.width
+                                implicitHeight: root.filteredModels.length === 0 ? 40 : Math.min(modelList.contentHeight + 2, listMaxHeight)
+                                padding: 1
+                                // 不抢键盘焦点：弹窗展开时焦点留在输入框，打字继续过滤
+                                focus: false
+                                closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+                                onAboutToShow: {
+                                    const rowY = modelRow.mapToItem(root, 0, 0).y
+                                    const below = root.height - rowY - modelRow.height - 12
+                                    const above = rowY - 12
+                                    const desired = Math.min(modelList.contentHeight + 2, 260)
+                                    openUpward = below < desired && above > below
+                                    listMaxHeight = Math.max(102, Math.min(260, openUpward ? above : below))
+                                    // 长列表中把当前选中的模型滚动到可见位置；
+                                    // 打开前过滤器已重置，filteredModels 即完整列表
+                                    const current = root.filteredModels.indexOf(selectedModel.trim())
+                                    if (current >= 0) {
+                                        modelList.positionViewAtIndex(current, ListView.Center)
+                                    }
+                                }
+
+                                // 关闭时恢复过滤器不变式，并记录时间戳供点击门控使用
+                                onClosed: {
+                                    root.modelFilter = ""
+                                    root.modelPopupClosedAt = Date.now()
+                                }
+
+                                contentItem: Item {
+                                    ListView {
+                                        id: modelList
+                                        anchors.fill: parent
+                                        clip: true
+                                        model: root.filteredModels
+                                        ScrollIndicator.vertical: ScrollIndicator { }
+
+                                        delegate: ItemDelegate {
+                                            width: modelList.width
+                                            height: 34
+                                            hoverEnabled: true
+                                            // 选项不抢焦点：点选后键盘焦点留在输入框，可继续输入
+                                            focusPolicy: Qt.NoFocus
+
+                                            contentItem: Text {
+                                                text: modelData
+                                                color: selectedModel.trim() === modelData ? accent : foreground
+                                                font.pixelSize: fontSizeNormal
+                                                verticalAlignment: Text.AlignVCenter
+                                                elide: Text.ElideRight
+                                                leftPadding: 12
+                                                rightPadding: 12
+                                            }
+
+                                            background: Rectangle {
+                                                color: hovered ? rowHighlightColor : panelColorAlt
+                                            }
+
+                                            onClicked: {
+                                                // 先关弹窗再赋值：赋值会触发 modelInput.onTextChanged，
+                                                // 若弹窗仍开着会更新 modelFilter → ListView model 变化 →
+                                                // 本委托被销毁，后续语句抛 ReferenceError。
+                                                const picked = modelData
+                                                modelPopup.close()
+                                                selectedModel = picked
+                                                saveConfig()
+                                            }
+                                        }
+                                    }
+
+                                    // 过滤无结果时的空态提示（此时手动输入仍然有效）
+                                    Text {
+                                        anchors.centerIn: parent
+                                        visible: root.filteredModels.length === 0
+                                        text: I18n.t("No matching models")
+                                        color: subtleForeground
+                                        font.pixelSize: fontSizeSmall
+                                    }
+                                }
+
+                                background: Rectangle {
+                                    color: panelColorAlt
+                                    radius: root.radius
+                                    border.width: 1
+                                    border.color: borderActive
                                 }
                             }
                         }
@@ -552,9 +776,9 @@ Item {
 
                             Text {
                                 anchors.centerIn: parent
-                                text: modelDetector.isDetecting ? "Scanning"
-                                      : modelDetector.availableModels.length > 0 ? "Refresh"
-                                      : "Detect"
+                                text: modelDetector.isDetecting ? I18n.t("Scanning")
+                                      : modelDetector.availableModels.length > 0 ? I18n.t("Refresh")
+                                      : I18n.t("Detect")
                                 color: "#061014"
                                 font.pixelSize: fontSizeSmall
                                 font.weight: Font.DemiBold
@@ -574,88 +798,6 @@ Item {
                             }
                         }
                     }
-                }
-
-                Column {
-                    width: parent.width
-                    spacing: 6
-
-                    FieldLabel { text: "THINKING" }
-
-                    ThemedComboBox {
-                        id: thinkingCombo
-                        width: parent.width
-                        model: ["Auto (recommended)", "Qwen3", "DeepSeek", "OpenAI o-series", "Ollama", "None (manual)"]
-                        currentIndex: thinkingIndex(setting.thinkingMode)
-
-                        onActivated: {
-                            if (ready) {
-                                setting.thinkingMode = thinkingModeFromIndex(currentIndex)
-                                saveConfig()
-                            }
-                        }
-                    }
-
-                    Text {
-                        width: parent.width
-                        text: "Auto picks the right settings from the model name. If you access models through a relay that renames them, choose the family of the real model."
-                        color: subtleForeground
-                        font.pixelSize: fontSizeLabel
-                        wrapMode: Text.WordWrap
-                        lineHeight: 1.25
-                    }
-                }
-
-                Popup {
-                    id: modelPopup
-                    x: modelRow.mapToItem(parent, 0, 0).x
-                    y: modelRow.mapToItem(parent, 0, 0).y + modelRow.height + 6
-                    width: modelRow.width
-                    implicitHeight: Math.min(modelList.contentHeight + 2, 196)
-                    padding: 1
-                    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-
-                    contentItem: ListView {
-                        id: modelList
-                        clip: true
-                        implicitHeight: Math.min(contentHeight, 196)
-                        model: modelDetector.availableModels
-                        ScrollIndicator.vertical: ScrollIndicator { }
-
-                        delegate: ItemDelegate {
-                            width: modelList.width
-                            height: 34
-                            hoverEnabled: true
-
-                            contentItem: Text {
-                                text: modelData
-                                color: selectedModel.trim() === modelData ? accent : foreground
-                                font.pixelSize: fontSizeNormal
-                                verticalAlignment: Text.AlignVCenter
-                                elide: Text.ElideRight
-                                leftPadding: 12
-                                rightPadding: 12
-                            }
-
-                            background: Rectangle {
-                                color: hovered ? rowHighlightColor : panelColorAlt
-                            }
-
-                            onClicked: {
-                                selectedModel = modelData
-                                modelPopup.close()
-                                saveConfig()
-                            }
-                        }
-                    }
-
-                    background: Rectangle {
-                        color: panelColorAlt
-                        radius: root.radius
-                        border.width: 1
-                        border.color: borderActive
-                    }
-                }
 
                 Rectangle {
                     width: parent.width
@@ -675,7 +817,7 @@ Item {
                         anchors.leftMargin: 10
                         anchors.rightMargin: 10
                         text: modelDetector.error !== "" ? modelDetector.error
-                              : (modelDetector.availableModels.length > 0 ? (modelDetector.availableModels.length + " models detected — pick one from the dropdown.") : "")
+                              : (modelDetector.availableModels.length > 0 ? I18n.t("%1 models detected — pick one from the dropdown.", modelDetector.availableModels.length) : "")
                         color: modelDetector.error !== "" ? root.error : mutedForeground
                         font.pixelSize: fontSizeSmall
                         wrapMode: Text.WordWrap
@@ -686,8 +828,154 @@ Item {
             }
 
             SettingsCard {
-                title: "Global Hotkey"
-                subtitle: "Translate the current selection from any app."
+                title: I18n.t("Screenshot Translation")
+
+                SettingsRow {
+                    label: I18n.t("VISION MODEL")
+
+                    ThemedComboBox {
+                        id: visionModelCombo
+                        width: parent.width
+                        model: root.visionModelChoices()
+                        onActivated: function(index) {
+                            root.selectedVisionModel = index === 0 ? "" : model[index]
+                            saveConfig()
+                        }
+                    }
+                }
+
+                Text {
+                    width: parent.width
+                    leftPadding: root.fieldColumnX
+                    readonly property string effectiveVisionModel: root.selectedVisionModel.trim().length > 0
+                        ? root.selectedVisionModel.trim() : root.selectedModel.trim()
+                    visible: effectiveVisionModel.length > 0 && !setting.isLikelyVisionModel(effectiveVisionModel)
+                    text: I18n.t("This model may not support image input. Pick a vision-capable model above if screenshot translation fails.")
+                    color: root.warning
+                    font.pixelSize: fontSizeLabel
+                    wrapMode: Text.WordWrap
+                    lineHeight: 1.25
+                }
+
+                Rectangle {
+                    width: parent.width
+                    visible: !root.hotkeysSupported
+                    height: visible ? screenshotWaylandTip.implicitHeight + 18 : 0
+                    radius: 10
+                    color: Qt.alpha(root.infoText, 0.08)
+                    border.width: 1
+                    border.color: Qt.alpha(root.infoText, 0.25)
+
+                    Text {
+                        id: screenshotWaylandTip
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: 10
+                        anchors.rightMargin: 10
+                        text: I18n.t("On Wayland, bind a shortcut in your desktop settings to run: TransAI --translate-screenshot")
+                        color: root.infoText
+                        font.pixelSize: fontSizeLabel
+                        wrapMode: Text.WordWrap
+                        lineHeight: 1.25
+                    }
+                }
+
+                SettingsRow {
+                    label: I18n.t("HOTKEY")
+
+                    ShortcutRecorder {
+                        id: screenshotShortcutField
+                        width: parent.width
+                        registrar: root.screenshotShortcutRegistrar
+                        onEdited: saveConfigSoon()
+                    }
+                }
+
+                Text {
+                    width: parent.width
+                    visible: screenshotShortcutField.errorText.length > 0
+                    text: screenshotShortcutField.errorText
+                    color: root.error
+                    font.pixelSize: fontSizeLabel
+                    wrapMode: Text.WordWrap
+                    lineHeight: 1.25
+                }
+
+                Text {
+                    text: (root.advancedExpanded ? "▾ " : "▸ ") + I18n.t("Advanced")
+                    color: advancedToggleArea.containsMouse ? root.accentHover : root.mutedForeground
+                    font.pixelSize: fontSizeSmall
+                    font.weight: Font.DemiBold
+
+                    MouseArea {
+                        id: advancedToggleArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.advancedExpanded = !root.advancedExpanded
+                    }
+                }
+
+                Column {
+                    width: parent.width
+                    spacing: 10
+                    visible: root.advancedExpanded
+
+                    SettingsRow {
+                        label: I18n.t("MAX IMAGE WIDTH")
+
+                        TextField {
+                            id: maxWidthInput
+                            width: 140
+                            height: controlHeight
+                            color: foreground
+                            font.pixelSize: fontSizeNormal
+                            leftPadding: 14
+                            rightPadding: 14
+                            verticalAlignment: TextInput.AlignVCenter
+                            validator: IntValidator { bottom: 512; top: 8192 }
+                            onTextChanged: saveConfigSoon()
+
+                            background: Rectangle {
+                                color: maxWidthInput.activeFocus ? fieldColorFocus : fieldColor
+                                radius: root.radius
+                                border.width: 1
+                                border.color: maxWidthInput.activeFocus ? borderActive : (maxWidthInput.hovered ? Qt.alpha(root.accent, 0.55) : border)
+                                Behavior on color { ColorAnimation { duration: 160 } }
+                            }
+                        }
+                    }
+
+                    SettingsRow {
+                        label: I18n.t("JPEG QUALITY")
+
+                        TextField {
+                            id: jpegQualityInput
+                            width: 140
+                            height: controlHeight
+                            color: foreground
+                            font.pixelSize: fontSizeNormal
+                            leftPadding: 14
+                            rightPadding: 14
+                            verticalAlignment: TextInput.AlignVCenter
+                            validator: IntValidator { bottom: 10; top: 100 }
+                            onTextChanged: saveConfigSoon()
+
+                            background: Rectangle {
+                                color: jpegQualityInput.activeFocus ? fieldColorFocus : fieldColor
+                                radius: root.radius
+                                border.width: 1
+                                border.color: jpegQualityInput.activeFocus ? borderActive : (jpegQualityInput.hovered ? Qt.alpha(root.accent, 0.55) : border)
+                                Behavior on color { ColorAnimation { duration: 160 } }
+                            }
+                        }
+                    }
+                }
+            }
+
+            SettingsCard {
+                title: I18n.t("Global Hotkey")
 
                 Rectangle {
                     width: parent.width
@@ -705,7 +993,7 @@ Item {
                         anchors.verticalCenter: parent.verticalCenter
                         anchors.leftMargin: 10
                         anchors.rightMargin: 10
-                        text: "Global hotkeys aren't available on Wayland. Instead, bind a shortcut in your desktop settings to run: TransAI --translate-selection"
+                        text: I18n.t("Global hotkeys aren't available on Wayland. Instead, bind a shortcut in your desktop settings to run: TransAI --translate-selection")
                         color: root.infoText
                         font.pixelSize: fontSizeLabel
                         wrapMode: Text.WordWrap
@@ -713,10 +1001,10 @@ Item {
                     }
                 }
 
-                Rectangle {
+                headerData: Rectangle {
                     id: shortcutRect
                     width: parent.width
-                    height: 52
+                    height: 44
                     color: activeFocus ? fieldColorFocus : fieldColor
                     radius: root.radius
                     border.width: 1
@@ -781,7 +1069,7 @@ Item {
 
                         Text {
                             visible: shortcutText.text.length === 0 && !shortcutRect.activeFocus
-                            text: root.hotkeysSupported ? "Click to record a shortcut" : "Unavailable on this platform"
+                            text: root.hotkeysSupported ? I18n.t("Click to record a shortcut") : I18n.t("Unavailable on this platform")
                             color: subtleForeground
                             font.pixelSize: fontSizeSmall
                             anchors.verticalCenter: parent.verticalCenter
@@ -789,7 +1077,7 @@ Item {
 
                         Text {
                             visible: shortcutRect.activeFocus
-                            text: "Press keys…"
+                            text: I18n.t("Press keys…")
                             color: accent
                             font.pixelSize: fontSizeSmall
                             font.weight: Font.DemiBold
@@ -802,7 +1090,7 @@ Item {
                         anchors.rightMargin: 14
                         anchors.verticalCenter: parent.verticalCenter
                         visible: shortcutRect.activeFocus
-                        text: "Esc to cancel"
+                        text: I18n.t("Esc to cancel")
                         color: subtleForeground
                         font.pixelSize: fontSizeLabel
                     }
@@ -821,7 +1109,7 @@ Item {
                         var shortcut = shortcutFromEvent(event)
                         if (shortcut.length > 0) {
                             if (shortcutRegistrar !== null && shortcutRegistrar.setShortcut(shortcut) === false) {
-                                hotkeyError = "Couldn't register '" + shortcut + "'. It may be reserved by the system or another app."
+                                hotkeyError = I18n.t("Couldn't register '%1'. It may be reserved by the system or another app.", shortcut)
                                 if (shortcutBeforeRecording.length > 0) {
                                     shortcutRegistrar.setShortcut(shortcutBeforeRecording)
                                 }
@@ -877,16 +1165,6 @@ Item {
 
                 Text {
                     width: parent.width
-                    visible: root.hotkeysSupported && root.hotkeyError.length === 0
-                    text: "Works system-wide: press it in any app to translate the currently selected text."
-                    color: subtleForeground
-                    font.pixelSize: fontSizeLabel
-                    wrapMode: Text.WordWrap
-                    lineHeight: 1.25
-                }
-
-                Text {
-                    width: parent.width
                     visible: root.hotkeysSupported && root.hotkeyError.length > 0
                     text: root.hotkeyError
                     color: root.error
@@ -903,7 +1181,7 @@ Item {
         id: modelDetector
         onAvailableModelsChanged: {
             if (openModelPopupAfterDetect && availableModels.length > 0) {
-                modelPopup.open()
+                openModelPopup()
                 openModelPopupAfterDetect = false
             }
         }
@@ -944,8 +1222,9 @@ Item {
     }
 
     component SettingsCard: Rectangle {
+        id: card
         width: parent ? parent.width : 0
-        height: cardColumn.height + 32
+        height: cardColumn.height + 28
         radius: root.radiusLarge
         color: root.cardColor
         border.width: 1
@@ -961,26 +1240,28 @@ Item {
         }
 
         default property alias contentData: bodyColumn.data
+        // 标题行右侧的内联控件槽（选项框/输入框等），与标题同行
+        property alias headerData: headerArea.data
         property string title: ""
-        property string subtitle: ""
 
         Column {
             id: cardColumn
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
-            anchors.margins: 16
-            spacing: 12
+            anchors.margins: 14
+            spacing: 10
 
-            Row {
+            Item {
+                id: cardHeader
                 width: parent.width
-                height: Math.max(24, titleColumn.implicitHeight)
-                spacing: 10
+                height: Math.max(18, titleText.implicitHeight, headerArea.childrenRect.height)
 
                 Rectangle {
                     width: 3
-                    height: Math.max(18, titleColumn.implicitHeight)
+                    height: 18
                     radius: 1.5
+                    anchors.left: parent.left
                     anchors.verticalCenter: parent.verticalCenter
                     gradient: Gradient {
                         GradientStop { position: 0.0; color: accentHover }
@@ -988,36 +1269,224 @@ Item {
                     }
                 }
 
-                Column {
-                    id: titleColumn
-                    width: parent.width - 13
+                Text {
+                    id: titleText
+                    anchors.left: parent.left
+                    anchors.leftMargin: 13
                     anchors.verticalCenter: parent.verticalCenter
-                    spacing: 3
+                    text: card.title
+                    color: foreground
+                    font.pixelSize: fontSizeLarge
+                    font.weight: Font.DemiBold
+                }
 
-                    Text {
-                        width: parent.width
-                        text: title
-                        color: foreground
-                        font.pixelSize: fontSizeLarge
-                        font.weight: Font.DemiBold
-                        elide: Text.ElideRight
-                    }
-
-                    Text {
-                        width: parent.width
-                        visible: subtitle.length > 0
-                        text: subtitle
-                        color: subtleForeground
-                        font.pixelSize: fontSizeLabel
-                        wrapMode: Text.WordWrap
-                    }
+                Item {
+                    id: headerArea
+                    anchors.left: parent.left
+                    anchors.leftMargin: Math.max(root.fieldColumnX, titleText.implicitWidth + 27)
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    height: childrenRect.height
                 }
             }
 
             Column {
                 id: bodyColumn
                 width: parent.width
-                spacing: 12
+                spacing: 10
+                height: childrenRect.height
+            }
+        }
+    }
+
+    // 左侧标签 + 右侧控件的单行布局；控件列从 fieldColumnX 对齐到右缘
+    component SettingsRow: Item {
+        id: settingsRow
+        property string label: ""
+        default property alias contentData: contentArea.data
+        width: parent ? parent.width : 0
+        height: Math.max(rowLabel.implicitHeight, contentArea.childrenRect.height)
+
+        Text {
+            id: rowLabel
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            text: settingsRow.label
+            color: foreground
+            font.pixelSize: fontSizeLarge
+            font.weight: Font.DemiBold
+            font.letterSpacing: 0.6
+        }
+
+        Item {
+            id: contentArea
+            anchors.left: parent.left
+            anchors.leftMargin: Math.max(root.fieldColumnX, rowLabel.implicitWidth + 16)
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            height: childrenRect.height
+        }
+    }
+
+    // Self-contained shortcut recorder (focus/record/cancel/restore cycle
+    // mirrors the Global Hotkey card's recorder). `shortcut` is the single
+    // data source; `registrar` applies the OS-level registration; `edited()`
+    // fires after an accepted recording so the parent can persist.
+    component ShortcutRecorder: Rectangle {
+        id: recorder
+        property string shortcut: ""
+        property QtObject registrar: null
+        property string errorText: ""
+        property string beforeRecording: ""
+        property bool recordingAccepted: false
+        signal edited()
+
+        height: 44
+        color: activeFocus ? fieldColorFocus : fieldColor
+        radius: root.radius
+        border.width: 1
+        border.color: activeFocus ? borderActive : border
+        opacity: root.hotkeysSupported ? 1.0 : 0.5
+
+        onActiveFocusChanged: {
+            if (activeFocus) {
+                beforeRecording = shortcut
+                recordingAccepted = false
+                errorText = ""
+                if (beforeRecording.length > 0 && registrar !== null) {
+                    registrar.setShortcut("")
+                }
+            } else if (!recordingAccepted && beforeRecording.length > 0 && registrar !== null) {
+                registrar.setShortcut(beforeRecording)
+            }
+        }
+
+        Behavior on color { ColorAnimation { duration: 160 } }
+
+        Row {
+            anchors.left: parent.left
+            anchors.leftMargin: 12
+            anchors.right: parent.right
+            anchors.rightMargin: recorder.activeFocus ? 92 : (recorderClear.visible ? 40 : 12)
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 6
+            clip: true
+
+            Repeater {
+                model: !recorder.activeFocus && recorder.shortcut.length > 0 ? recorder.shortcut.split("+") : []
+
+                delegate: Rectangle {
+                    height: 30
+                    width: chipText.implicitWidth + 20
+                    radius: 8
+                    color: fieldColorFocus
+                    border.width: 1
+                    border.color: Qt.alpha(root.accent, 0.35)
+
+                    Text {
+                        id: chipText
+                        anchors.centerIn: parent
+                        text: modelData
+                        color: foreground
+                        font.pixelSize: fontSizeSmall
+                        font.weight: Font.DemiBold
+                    }
+                }
+            }
+
+            Text {
+                visible: recorder.shortcut.length === 0 && !recorder.activeFocus
+                text: root.hotkeysSupported ? I18n.t("Click to record a shortcut") : I18n.t("Unavailable on this platform")
+                color: subtleForeground
+                font.pixelSize: fontSizeSmall
+                anchors.verticalCenter: parent.verticalCenter
+            }
+
+            Text {
+                visible: recorder.activeFocus
+                text: I18n.t("Press keys…")
+                color: accent
+                font.pixelSize: fontSizeSmall
+                font.weight: Font.DemiBold
+                anchors.verticalCenter: parent.verticalCenter
+            }
+        }
+
+        Text {
+            anchors.right: parent.right
+            anchors.rightMargin: 14
+            anchors.verticalCenter: parent.verticalCenter
+            visible: recorder.activeFocus
+            text: I18n.t("Esc to cancel")
+            color: subtleForeground
+            font.pixelSize: fontSizeLabel
+        }
+
+        Keys.onPressed: (event) => {
+            if (!recorder.activeFocus) {
+                return
+            }
+
+            if (event.key === Qt.Key_Escape) {
+                recorder.focus = false
+                event.accepted = true
+                return
+            }
+
+            var shortcut = shortcutFromEvent(event)
+            if (shortcut.length > 0) {
+                if (recorder.registrar !== null && recorder.registrar.setShortcut(shortcut) === false) {
+                    recorder.errorText = I18n.t("Couldn't register '%1'. It may be reserved by the system or another app.", shortcut)
+                    if (recorder.beforeRecording.length > 0) {
+                        recorder.registrar.setShortcut(recorder.beforeRecording)
+                    }
+                    recorder.focus = false
+                    event.accepted = true
+                    return
+                }
+                recorder.recordingAccepted = true
+                recorder.errorText = ""
+                recorder.shortcut = shortcut
+                recorder.edited()
+                recorder.focus = false
+            }
+            event.accepted = true
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            cursorShape: root.hotkeysSupported ? Qt.PointingHandCursor : Qt.ArrowCursor
+            onClicked: {
+                if (root.hotkeysSupported) {
+                    recorder.forceActiveFocus()
+                }
+            }
+        }
+
+        Text {
+            id: recorderClear
+            anchors.right: parent.right
+            anchors.rightMargin: 13
+            anchors.verticalCenter: parent.verticalCenter
+            visible: root.hotkeysSupported && !recorder.activeFocus && recorder.shortcut.length > 0
+            text: "✕"
+            color: recorderClearArea.containsMouse ? root.error : mutedForeground
+            font.pixelSize: fontSizeNormal
+
+            MouseArea {
+                id: recorderClearArea
+                anchors.fill: parent
+                anchors.margins: -8
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: {
+                    if (recorder.registrar !== null) {
+                        recorder.registrar.setShortcut("")
+                    }
+                    recorder.errorText = ""
+                    recorder.shortcut = ""
+                    recorder.edited()
+                }
             }
         }
     }
@@ -1083,12 +1552,5 @@ Item {
             font.weight: Font.DemiBold
             elide: Text.ElideRight
         }
-    }
-
-    component FieldLabel: Text {
-        color: mutedForeground
-        font.pixelSize: fontSizeLabel
-        font.weight: Font.DemiBold
-        font.letterSpacing: 1.0
     }
 }

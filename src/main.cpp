@@ -3,17 +3,20 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
-#include <QLocale>
-#include <QTranslator>
+#include <QWindow>
 
 #include "app/ApplicationCommandServer.h"
+#include "app/WindowDismissHelper.h"
 #include "settings/Setting.h"
 #include <QIcon>
 
 #include "input/GlobalShortcutManager.h"
+#include "input/GlobalClickMonitor.h"
 #include "input/SelectionTextProvider.h"
+#include "capture/ScreenshotCaptureService.h"
 #include "providers/ModelDiscoveryService.h"
 #include "translation/TranslationService.h"
+#include "vision/VisionTranslationService.h"
 
 int main(int argc, char *argv[])
 {
@@ -45,19 +48,27 @@ int main(int argc, char *argv[])
     const QCommandLineOption translateSelectionOption(
         QStringList {"translate-selection"},
         "Translate the current Wayland primary selection.");
+    const QCommandLineOption translateScreenshotOption(
+        QStringList {"translate-screenshot"},
+        "Capture a screenshot and translate it with a vision model.");
     const QCommandLineOption backgroundOption(
         QStringList {"background"},
         "Start the application in the background.");
     commandLine.addOption(translateSelectionOption);
+    commandLine.addOption(translateScreenshotOption);
     commandLine.addOption(backgroundOption);
     commandLine.process(app);
 
     const bool translateSelection = commandLine.isSet(translateSelectionOption);
-    const bool startHidden = translateSelection || commandLine.isSet(backgroundOption);
+    const bool translateScreenshot = !translateSelection && commandLine.isSet(translateScreenshotOption);
+    const bool startHidden = translateSelection || translateScreenshot || commandLine.isSet(backgroundOption);
     // A second --background launch forwards "noop", which the running instance
     // simply swallows (its only purpose is to prove the socket is alive); a
     // plain launch forwards "show" to raise the existing window.
-    const QString forwardedCommand = translateSelection ? "translate-selection" : (startHidden ? "noop" : "show");
+    const QString initialCommand = translateSelection ? QStringLiteral("translate-selection")
+        : translateScreenshot ? QStringLiteral("translate-screenshot")
+        : QString();
+    const QString forwardedCommand = !initialCommand.isEmpty() ? initialCommand : (startHidden ? "noop" : "show");
 
     if (ApplicationCommandServer::sendCommandToRunningInstance(forwardedCommand)) {
         return 0;
@@ -74,21 +85,15 @@ int main(int argc, char *argv[])
     }
 
 
-    QTranslator translator;
-    const QStringList uiLanguages = QLocale::system().uiLanguages();
-    for (const QString &locale : uiLanguages) {
-        const QString baseName = "TransAI_" + QLocale(locale).name();
-        // NOTE: no .qm files are bundled yet (source strings live in
-        // TransAI_zh_CN.ts). This loop degrades gracefully until translations
-        // are compiled into the resource.
-        if (translator.load(":/i18n/" + baseName)) {
-            app.installTranslator(&translator);
-            break;
-        }
-    }
+    // I18n lives in QML (the I18n singleton reads Setting.displayLanguage),
+    // so no QTranslator is installed here.
 
     Setting * setting = new Setting(&app);
+    WindowDismissHelper * windowDismiss = new WindowDismissHelper(&app);
+    GlobalClickMonitor * clickMonitor = new GlobalClickMonitor(&app);
     qmlRegisterType<TranslationService>("TransAI", 1, 0, "TranslationService");
+    qmlRegisterType<VisionTranslationService>("TransAI", 1, 0, "VisionTranslationService");
+    qmlRegisterType<ScreenshotCaptureService>("TransAI", 1, 0, "ScreenshotCaptureService");
     qmlRegisterType<ModelDiscoveryService>("TransAI", 1, 0, "ModelDiscoveryService");
     qmlRegisterType<GlobalShortcutManager>("TransAI", 1, 0, "GlobalShortcutManager");
     qmlRegisterType<SelectionTextProvider>("TransAI", 1, 0, "SelectionTextProvider");
@@ -98,15 +103,37 @@ int main(int argc, char *argv[])
     const QUrl url(QStringLiteral("qrc:///qml/main.qml"));
     engine.rootContext()->setContextProperty("setting", setting);
     engine.rootContext()->setContextProperty("appCommandServer", &commandServer);
+    engine.rootContext()->setContextProperty("windowDismiss", windowDismiss);
+    engine.rootContext()->setContextProperty("globalClickMonitor", clickMonitor);
     engine.rootContext()->setContextProperty("startHidden", startHidden);
-    engine.rootContext()->setContextProperty("initialCommand", translateSelection ? "translate-selection" : "");
+    engine.rootContext()->setContextProperty("initialCommand", initialCommand);
 
+    // QML 加载/创建失败必须退出：本进程已持有单实例 socket，若滞留会变成
+    // 无窗口的僵尸实例，吞掉之后所有 TransAI 命令（表现为“启动无反应”）。
+    // Qt 6.4+ 下根组件编译失败走 objectCreationFailed；objectCreated(nullptr)
+    // 保留以覆盖实例化失败路径。
+    QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed,
+                     &app, [url](const QUrl &objUrl) {
+        if (url == objUrl) {
+            qCritical() << "Failed to load" << url << "— exiting to avoid a headless single-instance squat";
+            QCoreApplication::exit(-1);
+        }
+    }, Qt::QueuedConnection);
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreated,
                      &app, [url](QObject *obj, const QUrl &objUrl) {
         if (!obj && url == objUrl)
             QCoreApplication::exit(-1);
     }, Qt::QueuedConnection);
     engine.load(url);
+
+    // The evdev click monitor only sees that a physical press happened; pairing
+    // it with presses delivered to our own window is what tells an outside
+    // click from an in-window one (e.g. clicks on an open in-window dropdown).
+    if (!engine.rootObjects().isEmpty()) {
+        if (QWindow *rootWindow = qobject_cast<QWindow *>(engine.rootObjects().first())) {
+            windowDismiss->trackWindow(rootWindow);
+        }
+    }
 
     return app.exec();
 }

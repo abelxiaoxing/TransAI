@@ -116,42 +116,56 @@ void TranslationService::translate(const TranslationRequest& request)
         return;
     }
 
-    QNetworkRequest networkRequest(ProviderEndpointBuilder::buildChatCompletionUrl(normalizedRequest.apiServer, normalizedRequest.provider));
-    networkRequest.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    networkRequest.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork);
-    if (normalizedRequest.provider != "ollama") {
-        networkRequest.setRawHeader("Authorization", QString("Bearer %1").arg(normalizedRequest.apiKey.trimmed()).toUtf8());
-    }
-
-    // Decide how to suppress/minimize model thinking for this endpoint/model
-    // (e.g. thinking.type=disabled for DeepSeek chat, enable_thinking=false
-    // for Qwen3, think=false for Ollama, reasoning_effort=low for o-series).
-    ThinkingPolicy thinkingPolicy = ThinkingPolicyBuilder::build(
-        normalizedRequest.provider, normalizedRequest.apiServer, normalizedRequest.model, normalizedRequest.thinkingMode);
-    if (normalizedRequest.thinkingMode == "auto" && normalizedRequest.mode == TranslationMode::Translate) {
-        // Translation is a deterministic task: always instruct the model
-        // (prompt level) to skip its reasoning process.
-        thinkingPolicy.directAnswerHint = true;
-    }
-
-    QJsonObject requestData;
-    requestData.insert("model", normalizedRequest.model);
-    requestData.insert("stream", true);
-    for (auto it = thinkingPolicy.bodyParams.constBegin(); it != thinkingPolicy.bodyParams.constEnd(); ++it) {
-        requestData.insert(it.key(), it.value());
-    }
-    requestData.insert("messages", PromptBuilder::buildMessages(normalizedRequest, thinkingPolicy));
+    // Fresh retry budget per user-facing request.
+    m_thinkingParamsAutoDisabled = false;
 
     m_streamParser.reset();
     setIsRequesting(true);
     emit translationStarted();
+
+    sendChatRequest(normalizedRequest);
+}
+
+void TranslationService::sendChatRequest(const TranslationRequest& request)
+{
+    // Decide how to suppress/minimize model thinking for this endpoint/model
+    // (e.g. thinking.type=disabled for DeepSeek chat, enable_thinking=false
+    // for Qwen3, think=false for Ollama, reasoning_effort=low for o-series).
+    // Fully automatic: the policy is derived from provider/host/model only.
+    ThinkingPolicy thinkingPolicy = ThinkingPolicyBuilder::build(
+        request.provider, request.apiServer, request.model);
+    if (request.mode == TranslationMode::Translate) {
+        // Translation is a deterministic task: always instruct the model
+        // (prompt level) to skip its reasoning process.
+        thinkingPolicy.directAnswerHint = true;
+    }
+    if (m_thinkingParamsAutoDisabled) {
+        // Transparent retry after the endpoint rejected the thinking fields:
+        // resend without them; prompt/output-level suppression remains.
+        thinkingPolicy.bodyParams = QJsonObject();
+    }
+
+    QNetworkRequest networkRequest(ProviderEndpointBuilder::buildChatCompletionUrl(request.apiServer, request.provider));
+    networkRequest.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    networkRequest.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork);
+    if (request.provider != "ollama") {
+        networkRequest.setRawHeader("Authorization", QString("Bearer %1").arg(request.apiKey.trimmed()).toUtf8());
+    }
+
+    QJsonObject requestData;
+    requestData.insert("model", request.model);
+    requestData.insert("stream", true);
+    for (auto it = thinkingPolicy.bodyParams.constBegin(); it != thinkingPolicy.bodyParams.constEnd(); ++it) {
+        requestData.insert(it.key(), it.value());
+    }
+    requestData.insert("messages", PromptBuilder::buildMessages(request, thinkingPolicy));
 
     m_reply = m_networkManager->post(networkRequest, QJsonDocument(requestData).toJson());
     QNetworkReply* currentReply = m_reply;
     connect(currentReply, &QNetworkReply::readyRead, this, [this, currentReply]() {
         handleStreamData(currentReply);
     });
-    connect(currentReply, &QNetworkReply::finished, this, [this, currentReply]() {
+    connect(currentReply, &QNetworkReply::finished, this, [this, currentReply, request]() {
         if (m_reply != currentReply) {
             currentReply->deleteLater();
             return;
@@ -165,6 +179,22 @@ void TranslationService::translate(const TranslationRequest& request)
         }
         if (result.hasError && !result.errorMessage.isEmpty()) {
             setResponseError(result.errorMessage);
+        }
+
+        // When a strict endpoint rejects the automatic thinking fields as
+        // unknown request parameters (HTTP 400 "extra fields not permitted",
+        // "unknown parameter", ...), retry once without them before failing.
+        // The empty-content guard keeps the retry to clean rejections, so a
+        // response that already streamed is never replayed.
+        if (!m_thinkingParamsAutoDisabled && m_responseData.isEmpty() && !m_responseError.isEmpty()
+            && ThinkingPolicyBuilder::isThinkingParamRejection(m_responseError)) {
+            m_thinkingParamsAutoDisabled = true;
+            m_streamParser.reset();
+            setResponseError("");
+            currentReply->deleteLater();
+            m_reply = nullptr;
+            sendChatRequest(request);
+            return;
         }
 
         setIsRequesting(false);

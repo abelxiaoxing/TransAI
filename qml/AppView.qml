@@ -11,19 +11,29 @@ Item {
     property bool resultHasFocus: result.textedit.activeFocus
     property bool stopped: false
     property bool selectionUnavailable: false
+    // Screenshot (vision) session state. Exactly one session owns the result
+    // panel at a time: starting either path aborts the other service first.
+    property bool screenshotSession: false
+    // Set when the capture itself failed before any request was sent.
+    property bool screenshotFailed: false
 
     // Derived view state: exactly one write-path per flag (translation
     // lifecycle signals below), everything else is a binding so the final
     // status never depends on signal-delivery order.
-    readonly property bool statusBusy: translationService.isRequesting
+    readonly property bool statusBusy: translationService.isRequesting || visionService.isRequesting
+    readonly property string activeError: screenshotSession ? visionService.responseError : translationService.responseError
     readonly property string statusText: {
-        if (selectionUnavailable) return "Selection unavailable"
-        if (translationService.isRequesting) return "Translating..."
-        if (translationService.responseError !== "") return "Error"
-        if (stopped) return "Stopped"
-        return "Ready"
+        if (selectionUnavailable) return I18n.t("Selection unavailable")
+        if (statusBusy) return I18n.t("Translating...")
+        if (screenshotSession && screenshotFailed) return I18n.t("Error")
+        if (activeError !== "") return I18n.t("Error")
+        if (stopped) return I18n.t("Stopped")
+        return I18n.t("Ready")
     }
     signal settingClicked;
+    // 显式关闭请求（✕ 按钮）；main.qml 收到后播放隐藏动画。Wayland 等平台
+    // 无法感知“点击窗口外”，必须提供一个明确的鼠标关闭入口。
+    signal closeRequested();
     // Emitted when the user (or startup) changes the pinned state; main.qml
     // applies the Qt.WindowStaysOnTopHint flag — AppView never touches the
     // window directly.
@@ -47,6 +57,7 @@ Item {
     readonly property color infoBg: ThemeColors.infoBg
     readonly property color warningBg: ThemeColors.warningBg
     readonly property color infoText: ThemeColors.infoText
+    readonly property color mutedForeground: ThemeColors.mutedForeground
     readonly property color warningText: ThemeColors.warningText
     readonly property int fontSizeSmall: 12
     readonly property int fontSizeNormal: 16
@@ -56,6 +67,10 @@ Item {
         if (inputArea.text.length === 0) {
             return
         }
+        // The text session takes over the result panel.
+        visionService.abort()
+        root.screenshotSession = false
+        root.screenshotFailed = false
         translationService.translateFromMap({
             "text": inputArea.text,
             "targetLanguage": langSelector.currentText,
@@ -63,9 +78,35 @@ Item {
             "provider": setting.provider,
             "apiServer": setting.apiServer,
             "apiKey": setting.apiKey,
-            "model": setting.model,
-            "thinkingMode": setting.thinkingMode
+            "model": setting.model
         })
+    }
+
+    // Screenshot translation entry point (multimodal). The image comes from
+    // ScreenshotCaptureService; options mirror the text request but use the
+    // screenshot vision model override ("follow current model" when empty).
+    function startScreenshotTranslation(image) {
+        translationService.abort()
+        root.screenshotSession = true
+        root.screenshotFailed = false
+        visionService.translateImage(image, {
+            "targetLanguage": langSelector.currentText,
+            "provider": setting.provider,
+            "apiServer": setting.apiServer,
+            "apiKey": setting.apiKey,
+            "model": setting.effectiveScreenshotVisionModel(),
+            "maxImageWidth": setting.screenshotMaxImageWidth,
+            "jpegQuality": setting.screenshotJpegQuality
+        })
+    }
+
+    // Capture failed before any request could be sent (portal unavailable,
+    // platform unsupported, ...). Distinct from a translation failure.
+    function showScreenshotError(message) {
+        visionService.abort()
+        root.screenshotSession = true
+        root.screenshotFailed = true
+        result.text = message
     }
 
     function showSelectionError(message) {
@@ -78,11 +119,6 @@ Item {
     // CorrectGrammar prompts already exist in PromptBuilder.
     function getMode(){
         return 0
-    }
-
-    Component.onCompleted: {
-        // 应用启动时默认置顶
-        root.setPinned(true)
     }
 
     AppBackground {
@@ -101,7 +137,7 @@ Item {
 
         Text {
             id: titleText
-            text: "Quick Translate"
+            text: I18n.t("Quick Translate")
             color: root.accent
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
@@ -136,10 +172,35 @@ Item {
             }
         }
 
+        Text {
+            id: closeButton
+            z: 1
+            width: 26
+            height: 26
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.rightMargin: 16
+            text: "✕"
+            color: closeArea.containsMouse ? root.accentHover : root.mutedForeground
+            font.pixelSize: root.fontSizeNormal
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            MouseArea {
+                id: closeArea
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.closeRequested()
+            }
+        }
+
         Rectangle {
             id: statusPill
             anchors.top: parent.top
-            anchors.right: parent.right
+            // 右上角依次是 ✕ 关闭和设置按钮，pill 让位到设置按钮左侧，
+            // 避免与 closeButton 交叠（曾出现 ✕ 直接压在状态文字上）
+            anchors.right: settingBtn.left
+            anchors.rightMargin: 8
             height: 18
             radius: 9
             color: root.statusBusy ? root.warningBg : root.infoBg
@@ -252,7 +313,7 @@ Item {
 
     Text{
         id:indictor
-        text:"Translated"
+        text:I18n.t("Translated")
         anchors.left: inputItem.left
         anchors.top:inputItem.bottom
         opacity: 1
@@ -318,10 +379,10 @@ Item {
         anchors.right:parent.right
         anchors.margins:10
         opacity: 1
-        text: Qt.platform.os === "macos" ? "Translate ⌘Enter" : "Translate (Ctrl+Enter)"
+        text: Qt.platform.os === "macos" ? I18n.t("Translate ⌘Enter") : I18n.t("Translate (Ctrl+Enter)")
         font.capitalization: Font.MixedCase
         enabled:inputArea.text.length > 0
-        visible: !translationService.isRequesting
+        visible: !root.statusBusy
         onClicked: {
             root.startTrans()
         }
@@ -353,21 +414,22 @@ Item {
         anchors.verticalCenter: stopBtn.verticalCenter
         anchors.right:stopBtn.left
         anchors.rightMargin: 10
-        running: translationService.isRequesting
-        visible:translationService.isRequesting
+        running: root.statusBusy
+        visible:root.statusBusy
         width:transBtn.height - 10
         height:width
     }
     Button{
         id:stopBtn
-        visible: translationService.isRequesting
+        visible: root.statusBusy
         z:2
         anchors.bottom: parent.bottom
         anchors.right:parent.right
         anchors.margins:10
-        text:"stop"
+        text:I18n.t("stop")
         onClicked: {
             translationService.abort()
+            visionService.abort()
         }
         height:50
         background: Rectangle {
@@ -427,6 +489,31 @@ Item {
         }
         onTranslationStopped: {
             // Keep the partial result visible, but distinguish it from Ready.
+            root.stopped = true
+        }
+    }
+
+    // Screenshot (multimodal) translation. Mirrors TranslationService
+    // bindings; both services write into the same result panel, and starting
+    // either session aborts the other first, so they never race.
+    VisionTranslationService {
+        id: visionService
+        onTranslationStarted: {
+            result.text = ""
+            root.stopped = false
+            root.selectionUnavailable = false
+        }
+        onResponseDataChanged: {
+            if (responseError === "") {
+                result.text = responseData
+            }
+        }
+        onResponseErrorChanged: {
+            if (responseError !== "") {
+                result.text = responseError
+            }
+        }
+        onTranslationStopped: {
             root.stopped = true
         }
     }

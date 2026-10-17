@@ -6,7 +6,7 @@ namespace {
 ThinkingPolicy autoPolicy(const QString& model, const QString& apiServer = "https://api.openai.com",
                           const QString& provider = "openai")
 {
-    return ThinkingPolicyBuilder::build(provider, apiServer, model, "auto");
+    return ThinkingPolicyBuilder::build(provider, apiServer, model);
 }
 } // namespace
 
@@ -15,8 +15,6 @@ class TestThinkingPolicy : public QObject
     Q_OBJECT
 
 private slots:
-    void normalizeThinkingMode();
-    void manualModeIsPassthrough();
     void unknownNonThinkingModelIsUntouched();
     void ollamaProviderUsesThinkFlag();
     void deepSeekChatUsesThinkingDisabled();
@@ -27,29 +25,8 @@ private slots:
     void openRouterThinkingModelCapped();
     void openRouterNonThinkingUntouched();
     void fallbackKeywordHint();
-    void forcedProfiles();
+    void thinkingParamRejectionDetection();
 };
-
-void TestThinkingPolicy::normalizeThinkingMode()
-{
-    QCOMPARE(ThinkingPolicyBuilder::normalizeThinkingMode("auto"), QString("auto"));
-    QCOMPARE(ThinkingPolicyBuilder::normalizeThinkingMode(""), QString("auto"));
-    QCOMPARE(ThinkingPolicyBuilder::normalizeThinkingMode("garbage"), QString("auto"));
-    QCOMPARE(ThinkingPolicyBuilder::normalizeThinkingMode("Qwen"), QString("qwen"));
-    QCOMPARE(ThinkingPolicyBuilder::normalizeThinkingMode("DEEPSEEK"), QString("deepseek"));
-    QCOMPARE(ThinkingPolicyBuilder::normalizeThinkingMode("none"), QString("manual"));
-    QCOMPARE(ThinkingPolicyBuilder::normalizeThinkingMode("manual"), QString("manual"));
-}
-
-void TestThinkingPolicy::manualModeIsPassthrough()
-{
-    const ThinkingPolicy policy =
-        ThinkingPolicyBuilder::build("openai", "https://api.openai.com", "deepseek-reasoner", "manual");
-    QVERIFY(policy.bodyParams.isEmpty());
-    QVERIFY(!policy.noThinkTag);
-    QVERIFY(!policy.directAnswerHint);
-    QVERIFY(!policy.isActive());
-}
 
 void TestThinkingPolicy::unknownNonThinkingModelIsUntouched()
 {
@@ -128,25 +105,30 @@ void TestThinkingPolicy::fallbackKeywordHint()
     QVERIFY(policy.directAnswerHint);
 }
 
-void TestThinkingPolicy::forcedProfiles()
+void TestThinkingPolicy::thinkingParamRejectionDetection()
 {
-    // Relay alias model ids hide the real family; forced profiles apply anyway.
-    const ThinkingPolicy qwen =
-        ThinkingPolicyBuilder::build("openai", "https://relay.example", "LocalModel", "qwen");
-    QCOMPARE(qwen.bodyParams.value("enable_thinking"), QJsonValue(false));
-    QVERIFY(qwen.noThinkTag);
+    // Rejections naming a thinking parameter: retry candidates.
+    QVERIFY(ThinkingPolicyBuilder::isThinkingParamRejection(
+        QStringLiteral("Unknown parameter: 'enable_thinking'")));
+    QVERIFY(ThinkingPolicyBuilder::isThinkingParamRejection(
+        QStringLiteral("Extra fields not permitted [input: enable_thinking]")));
+    QVERIFY(ThinkingPolicyBuilder::isThinkingParamRejection(
+        QStringLiteral("Extra inputs are not permitted [type=extra_forbidden, loc=['body', 'enable_thinking']]")));
+    QVERIFY(ThinkingPolicyBuilder::isThinkingParamRejection(
+        QStringLiteral("Unrecognized request argument supplied: reasoning_effort")));
+    QVERIFY(ThinkingPolicyBuilder::isThinkingParamRejection(
+        QStringLiteral("this model does not support the thinking parameter")));
+    QVERIFY(ThinkingPolicyBuilder::isThinkingParamRejection(
+        QStringLiteral("Invalid parameter: 'think'")));
 
-    const ThinkingPolicy deepseek =
-        ThinkingPolicyBuilder::build("openai", "https://relay.example", "LocalModel", "deepseek");
-    QCOMPARE(deepseek.bodyParams.value("thinking").toObject().value("type"), QJsonValue("disabled"));
-
-    const ThinkingPolicy openai =
-        ThinkingPolicyBuilder::build("openai", "https://relay.example", "LocalModel", "openai");
-    QCOMPARE(openai.bodyParams.value("reasoning_effort"), QJsonValue("low"));
-
-    const ThinkingPolicy ollama =
-        ThinkingPolicyBuilder::build("openai", "https://relay.example", "LocalModel", "ollama");
-    QCOMPARE(ollama.bodyParams.value("think"), QJsonValue(false));
+    // Unrelated failures must not trigger a retry.
+    QVERIFY(!ThinkingPolicyBuilder::isThinkingParamRejection(QStringLiteral("Incorrect API key provided")));
+    QVERIFY(!ThinkingPolicyBuilder::isThinkingParamRejection(QStringLiteral("model `foo` not found")));
+    QVERIFY(!ThinkingPolicyBuilder::isThinkingParamRejection(QStringLiteral("Request failed")));
+    QVERIFY(!ThinkingPolicyBuilder::isThinkingParamRejection(QStringLiteral("streaming not supported")));
+    QVERIFY(!ThinkingPolicyBuilder::isThinkingParamRejection(
+        QStringLiteral("Unknown parameter: 'temperature'")));
+    QVERIFY(!ThinkingPolicyBuilder::isThinkingParamRejection(QStringLiteral("")));
 }
 
 QTEST_MAIN(TestThinkingPolicy)

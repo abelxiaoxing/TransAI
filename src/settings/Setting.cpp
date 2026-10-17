@@ -6,12 +6,12 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
+#include <QLocale>
 #include <QSaveFile>
 #include <QStandardPaths>
 #include <QDebug>
 
 #include "providers/ProviderDefaults.h"
-#include "providers/ThinkingPolicy.h"
 
 namespace {
 const char kConfigFileName[] = "config.json";
@@ -28,9 +28,16 @@ const char kOllamaApiServerKey[] = "ollamaApiServer";
 const char kOllamaModelKey[] = "ollamaModel";
 const char kShortCutKey[] = "shortCut";
 const char kProviderKey[] = "provider";
-const char kThinkingModeKey[] = "thinkingMode";
+const char kDisplayLanguageKey[] = "displayLanguage";
+const char kScreenshotShortCutKey[] = "screenshotShortCut";
+const char kScreenshotTranslateModeKey[] = "screenshotTranslateMode";
+const char kScreenshotVisionModelKey[] = "screenshotVisionModel";
+const char kScreenshotMaxImageWidthKey[] = "screenshotMaxImageWidth";
+const char kScreenshotJpegQualityKey[] = "screenshotJpegQuality";
 const char kConfigVersionKey[] = "configVersion";
 constexpr int kConfigVersion = 2;
+constexpr int kDefaultMaxImageWidth = 1600;
+constexpr int kDefaultJpegQuality = 85;
 
 QStringList existingConfigCandidates()
 {
@@ -87,7 +94,13 @@ Setting::Setting(QObject* parent)
     _openaiModel = ProviderDefaults::openAiDefaultModel();
     _ollamaApiServer = ProviderDefaults::ollamaApiServer();
     _provider = "openai";
-    _thinkingMode = "auto";
+    // Screenshot-translation defaults: vision-first, follow current model.
+    _screenshotTranslateMode = "auto";
+    _screenshotMaxImageWidth = kDefaultMaxImageWidth;
+    _screenshotJpegQuality = kDefaultJpegQuality;
+    // First launch (config without a displayLanguage key) follows the system
+    // UI language; normalizedDisplayLanguage handles that fallback.
+    _displayLanguage = normalizedDisplayLanguage(QString());
 
     m_configPath = resolveConfigPath();
     if (m_configPath.isEmpty()) {
@@ -109,6 +122,22 @@ Setting::Setting(QObject* parent)
     } else {
         updateConfig();
     }
+}
+
+QString Setting::normalizedDisplayLanguage(const QString& language)
+{
+    if (language.compare(QLatin1String("en"), Qt::CaseInsensitive) == 0) {
+        return QStringLiteral("en");
+    }
+    // Anything else — including empty or unknown values — resolves zh* locales
+    // to the single supported Chinese variant and every other locale to
+    // English. An empty value probes the system locale, so a first launch
+    // without the key follows the system UI language.
+    const QString probe = language.trimmed().isEmpty() ? QLocale::system().name() : language;
+    if (QLocale(probe).language() == QLocale::Chinese) {
+        return QStringLiteral("zh-CN");
+    }
+    return QStringLiteral("en");
 }
 
 bool Setting::loadConfig()
@@ -170,11 +199,27 @@ bool Setting::loadConfig()
     _ollamaModel = obj.value(kOllamaModelKey).toString();
     _shortCut = obj.value(kShortCutKey).toString();
 
-    const QString parsedThinkingMode =
-        ThinkingPolicyBuilder::normalizeThinkingMode(obj.value(kThinkingModeKey).toString());
-    if (_thinkingMode != parsedThinkingMode) {
-        _thinkingMode = parsedThinkingMode;
-        emit thinkingModeChanged();
+    // Screenshot translation keys (absent = defaults; older configs keep
+    // working unchanged).
+    _screenshotShortCut = obj.value(kScreenshotShortCutKey).toString();
+    const QString mode = obj.value(kScreenshotTranslateModeKey).toString().trimmed().toLower();
+    _screenshotTranslateMode = (mode == QLatin1String("vision") || mode == QLatin1String("ocr"))
+        ? mode
+        : QStringLiteral("auto");
+    _screenshotVisionModel = obj.value(kScreenshotVisionModelKey).toString();
+    _screenshotMaxImageWidth = obj.value(kScreenshotMaxImageWidthKey).toInt(kDefaultMaxImageWidth);
+    if (_screenshotMaxImageWidth <= 0) {
+        _screenshotMaxImageWidth = kDefaultMaxImageWidth;
+    }
+    _screenshotJpegQuality = obj.value(kScreenshotJpegQualityKey).toInt(kDefaultJpegQuality);
+    if (_screenshotJpegQuality <= 0 || _screenshotJpegQuality > 100) {
+        _screenshotJpegQuality = kDefaultJpegQuality;
+    }
+
+    const QString parsedDisplayLanguage = normalizedDisplayLanguage(obj.value(kDisplayLanguageKey).toString());
+    if (_displayLanguage != parsedDisplayLanguage) {
+        _displayLanguage = parsedDisplayLanguage;
+        emit displayLanguageChanged();
     }
 
     return true;
@@ -200,12 +245,17 @@ void Setting::updateConfig()
         {kConfigVersionKey, kConfigVersion},
         {kShortCutKey, _shortCut},
         {kProviderKey, _provider},
-        {kThinkingModeKey, _thinkingMode},
+        {kDisplayLanguageKey, _displayLanguage},
         {kOpenAIApiServerKey, _openaiApiServer},
         {kOpenAIApiKeyKey, _openaiApiKey},
         {kOpenAIModelKey, _openaiModel},
         {kOllamaApiServerKey, _ollamaApiServer},
         {kOllamaModelKey, _ollamaModel},
+        {kScreenshotShortCutKey, _screenshotShortCut},
+        {kScreenshotTranslateModeKey, _screenshotTranslateMode},
+        {kScreenshotVisionModelKey, _screenshotVisionModel},
+        {kScreenshotMaxImageWidthKey, _screenshotMaxImageWidth},
+        {kScreenshotJpegQualityKey, _screenshotJpegQuality},
     };
 
     QSaveFile file(m_configPath);

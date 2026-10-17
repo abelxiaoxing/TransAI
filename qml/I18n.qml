@@ -1,0 +1,99 @@
+pragma Singleton
+import QtQuick
+
+// UI display language (English / 简体中文).
+//
+// Deliberately outside the Qt Linguist toolchain (lupdate/lrelease are not
+// available in every build environment): strings are looked up in the table
+// below with the English source text as the key. The active language follows
+// Setting.displayLanguage — exposed to QML as the "setting" context property —
+// so switching the entry in the settings page re-evaluates every binding that
+// calls t() live, without an application restart.
+QtObject {
+    // Values are normalized by Setting on load; "en" doubles as the fallback.
+    readonly property string language: setting.displayLanguage
+    readonly property bool isChinese: language === "zh-CN"
+
+    // zh-CN table. Missing entries fall back to the English source text.
+    readonly property var _zhTable: ({
+        // Generic
+        "Settings": "设置",
+        "Saved ✓": "已保存 ✓",
+        "LOCAL": "本地",
+        "CLOUD": "云端",
+        "NO MODEL": "未选模型",
+        "Show": "显示",
+        "Hide": "隐藏",
+
+        // Language card
+        "Language": "语言",
+
+        // AI provider card
+        "AI Provider": "AI 服务",
+        "PROVIDER": "服务商",
+        "OpenAI / Compatible API": "OpenAI / 兼容 API",
+        "Ollama (Local)": "Ollama（本地）",
+        "API SERVER": "API 地址",
+        "API KEY": "API 密钥",
+        "Required — paste the API key for your provider.": "必填——请粘贴你的服务商 API 密钥。",
+        "This key doesn't look like a typical API key. Double-check it if requests fail.": "这个密钥看起来不像常规 API 密钥。如果请求失败，请再检查一遍。",
+
+        // Model card
+        "Model": "模型",
+        "Scanning": "扫描中",
+        "Refresh": "刷新",
+        "Detect": "检测",
+        "Select from the list, or type a name": "从列表中选择，或直接输入名称",
+        "Type a model name, or detect from the server": "输入模型名称，或从服务器检测",
+        "No matching models": "没有匹配的模型（可直接输入自定义名称）",
+        "%1 models detected — pick one from the dropdown.": "已检测到 %1 个模型——请从下拉列表中选择。",
+
+        // Hotkey card
+        "Global Hotkey": "全局快捷键",
+        "Global hotkeys aren't available on Wayland. Instead, bind a shortcut in your desktop settings to run: TransAI --translate-selection": "Wayland 下无法注册全局快捷键。请在桌面环境的快捷键设置中绑定命令：TransAI --translate-selection",
+        "Click to record a shortcut": "点击录制快捷键",
+        "Unavailable on this platform": "当前平台不可用",
+        "Press keys…": "请按下快捷键…",
+        "Esc to cancel": "按 Esc 取消",
+        "Couldn't register '%1'. It may be reserved by the system or another app.": "无法注册“%1”。该快捷键可能已被系统或其他应用占用。",
+
+        // Screenshot translation card
+        "Screenshot Translation": "截图翻译",
+        "Drag to select a region · Esc or right-click to cancel": "拖拽框选截图区域 · Esc 或右键取消",
+        "Screen capture is not available on this platform": "当前平台无法截取屏幕",
+        "VISION MODEL": "视觉模型",
+        "Follow current model": "跟随当前模型",
+        "This model may not support image input. Pick a vision-capable model above if screenshot translation fails.": "该模型可能不支持图片输入。如果截图翻译失败，请在上方选择一个视觉模型。",
+        "HOTKEY": "快捷键",
+        "On Wayland, bind a shortcut in your desktop settings to run: TransAI --translate-screenshot": "Wayland 下请在桌面环境的快捷键设置中绑定命令：TransAI --translate-screenshot",
+        "Advanced": "高级",
+        "MAX IMAGE WIDTH": "图片最大宽度",
+        "JPEG QUALITY": "JPEG 质量",
+
+        // Main view
+        "Quick Translate": "快速翻译",
+        "Selection unavailable": "无法获取选中文本",
+        "Translating...": "翻译中…",
+        "Error": "错误",
+        "Stopped": "已停止",
+        "Ready": "就绪",
+        "Translated": "翻译结果",
+        "Translate (Ctrl+Enter)": "翻译 (Ctrl+Enter)",
+        "Translate ⌘Enter": "翻译 ⌘Enter",
+        "stop": "停止",
+
+        // Tray menu
+        "Translate selection": "翻译选中文本",
+        "Translate screenshot": "截图翻译",
+        "Quit": "退出"
+    })
+
+    // Lookup with optional %1, %2, … substitution: t("%1 models detected", 3).
+    function t(text) {
+        var result = isChinese && _zhTable[text] !== undefined ? _zhTable[text] : text
+        for (var i = 1; i < arguments.length; ++i) {
+            result = result.split("%" + i).join(arguments[i])
+        }
+        return result
+    }
+}

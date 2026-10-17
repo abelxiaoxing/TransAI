@@ -1,6 +1,5 @@
 #include "translation/TranslationRequest.h"
 
-#include "providers/ThinkingPolicy.h"
 
 TranslationMode translationModeFromInt(int value)
 {
@@ -27,8 +26,5 @@ TranslationRequest translationRequestFromMap(const QVariantMap& map)
 
     // The QML UI only ever sends numeric mode codes (see AppView.getMode()).
     request.mode = translationModeFromInt(map.value("mode", 0).toInt());
-
-    request.thinkingMode =
-        ThinkingPolicyBuilder::normalizeThinkingMode(map.value("thinkingMode", "auto").toString());
     return request;
 }

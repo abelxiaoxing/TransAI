@@ -7,9 +7,49 @@
 
 #include "providers/ApiError.h"
 
+namespace {
+// Reasoning-block tags emitted inside the content stream by thinking models
+// that ignore (or never received) suppression parameters: DeepSeek-R1, QwQ,
+// Qwen3, GLM and most OpenAI-compatible relays use <think>; a few vendors use
+// one of the variants.
+const QStringList kThinkOpenTags = {
+    QStringLiteral("<think>"),
+    QStringLiteral("<thinking>"),
+    QStringLiteral("<reasoning>"),
+    QStringLiteral("<thought>"),
+};
+
+QString closeTagFor(const QString& openTag)
+{
+    return openTag.left(1) + QLatin1String("/") + openTag.mid(1);
+}
+
+// Length of the longest suffix of `text` that is a proper prefix of one of
+// `tags`. Such a suffix must be withheld until the next chunk, because it
+// could turn out to be a tag split across chunk boundaries. 11 covers the
+// longest candidate ("</reasoning>" minus one character).
+int partialTagSuffixLength(const QString& text, const QStringList& tags)
+{
+    const int maxLen = qMin(text.size(), 11);
+    for (int len = maxLen; len >= 1; --len) {
+        const QString tail = text.right(len);
+        for (const QString& tag : tags) {
+            if (tag.startsWith(tail)) {
+                return len;
+            }
+        }
+    }
+    return 0;
+}
+} // namespace
+
 void StreamParser::reset()
 {
     m_buffer.clear();
+    m_inThinkBlock = false;
+    m_openTag.clear();
+    m_closeTag.clear();
+    m_tagHold.clear();
 }
 
 void StreamParser::mergeInto(StreamParseResult& target, const StreamParseResult& extra)
@@ -49,17 +89,79 @@ StreamParseResult StreamParser::consume(const QByteArray& data)
 StreamParseResult StreamParser::flush()
 {
     StreamParseResult result;
-    if (m_buffer.trimmed().isEmpty()) {
-        m_buffer.clear();
-        return result;
+    const QByteArray trimmed = m_buffer.trimmed();
+    m_buffer.clear();
+    if (!trimmed.isEmpty()) {
+        result = parseEvent(trimmed);
     }
 
-    result = parseEvent(m_buffer);
-    m_buffer.clear();
+    // End of stream: the withheld tail can no longer be a tag. Outside a
+    // think block it is ordinary content and must be released; inside one it
+    // is reasoning from an unclosed block and stays dropped.
+    if (!m_tagHold.isEmpty()) {
+        if (!m_inThinkBlock) {
+            result.content += m_tagHold;
+        }
+        m_tagHold.clear();
+    }
+
     return result;
 }
 
-StreamParseResult StreamParser::parseEvent(const QByteArray& event) const
+QString StreamParser::filterThinkBlocks(QString content)
+{
+    // A tail withheld by the previous chunk may complete (or disprove) a
+    // split tag, so it always rejoins the stream here first.
+    content.prepend(m_tagHold);
+    m_tagHold.clear();
+
+    QString output;
+    while (!content.isEmpty()) {
+        if (m_inThinkBlock) {
+            // Inside a block everything is dropped until the close tag.
+            const int closeIndex = content.indexOf(m_closeTag);
+            if (closeIndex < 0) {
+                // No close tag in sight: drop the reasoning, but withhold a
+                // tail that could be the start of a split close tag. Take the
+                // tail BEFORE any modification of `content` (a chop() first
+                // would make right() return the wrong characters and the real
+                // close tag would never match, silently swallowing the rest
+                // of the stream).
+                m_tagHold = content.right(partialTagSuffixLength(content, { m_closeTag }));
+                break;
+            }
+            content.remove(0, closeIndex + m_closeTag.size());
+            m_inThinkBlock = false;
+            m_openTag.clear();
+            m_closeTag.clear();
+        } else {
+            int openIndex = -1;
+            QString matchedTag;
+            for (const QString& tag : kThinkOpenTags) {
+                const int index = content.indexOf(tag);
+                if (index >= 0 && (openIndex < 0 || index < openIndex)) {
+                    openIndex = index;
+                    matchedTag = tag;
+                }
+            }
+            if (openIndex < 0) {
+                const int hold = partialTagSuffixLength(content, kThinkOpenTags);
+                output += content.left(content.size() - hold);
+                m_tagHold = content.right(hold);
+                break;
+            }
+            output += content.left(openIndex);
+            m_inThinkBlock = true;
+            m_openTag = matchedTag;
+            m_closeTag = closeTagFor(matchedTag);
+            content.remove(0, openIndex + matchedTag.size());
+        }
+    }
+
+    return output;
+}
+
+StreamParseResult StreamParser::parseEvent(const QByteArray& event)
 {
     StreamParseResult result;
     bool hasDataLine = false;
@@ -110,7 +212,7 @@ QByteArray StreamParser::takeNextEvent()
     return event;
 }
 
-StreamParseResult StreamParser::parseEventPayload(const QByteArray& payload) const
+StreamParseResult StreamParser::parseEventPayload(const QByteArray& payload)
 {
     StreamParseResult result;
     const QByteArray trimmedPayload = payload.trimmed();
@@ -141,7 +243,9 @@ StreamParseResult StreamParser::parseEventPayload(const QByteArray& payload) con
     if (!choices.isEmpty()) {
         const QJsonObject choice = choices.at(0).toObject();
         const QJsonObject delta = choice.value("delta").toObject();
-        result.content = delta.value("content").toString();
+        // Strip reasoning blocks that models emit in the content stream even
+        // when suppression was requested (last-resort output-level filter).
+        result.content = filterThinkBlocks(delta.value("content").toString());
     }
 
     return result;

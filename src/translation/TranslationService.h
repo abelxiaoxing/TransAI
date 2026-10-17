@@ -38,6 +38,7 @@ signals:
 
 private:
     void translate(const TranslationRequest& request);
+    void sendChatRequest(const TranslationRequest& request);
     void cancelCurrentRequest();
     void handleStreamData(QNetworkReply* reply);
     void setResponseData(const QString& responseData);
@@ -50,6 +51,9 @@ private:
     QString m_responseData;
     QString m_responseError;
     bool m_isRequesting;
+    // Set when an endpoint rejected the automatic thinking request fields;
+    // the transparent retry in sendChatRequest resends without them.
+    bool m_thinkingParamsAutoDisabled = false;
     StreamParser m_streamParser;
 };
 
