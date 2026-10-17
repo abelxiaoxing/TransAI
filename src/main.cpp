@@ -7,6 +7,7 @@
 #include <QWindow>
 
 #include "app/ApplicationCommandServer.h"
+#include "app/ClipboardHelper.h"
 #include "app/WindowDismissHelper.h"
 #include "settings/Setting.h"
 #include <QIcon>
@@ -97,6 +98,7 @@ int main(int argc, char *argv[])
     Setting * setting = new Setting(&app);
     WindowDismissHelper * windowDismiss = new WindowDismissHelper(&app);
     GlobalClickMonitor * clickMonitor = new GlobalClickMonitor(&app);
+    ClipboardHelper * clipboard = new ClipboardHelper(&app);
     qmlRegisterType<TranslationService>("TransAI", 1, 0, "TranslationService");
     qmlRegisterType<VisionTranslationService>("TransAI", 1, 0, "VisionTranslationService");
     qmlRegisterType<ScreenshotCaptureService>("TransAI", 1, 0, "ScreenshotCaptureService");
@@ -111,6 +113,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("appCommandServer", &commandServer);
     engine.rootContext()->setContextProperty("windowDismiss", windowDismiss);
     engine.rootContext()->setContextProperty("globalClickMonitor", clickMonitor);
+    engine.rootContext()->setContextProperty("clipboard", clipboard);
     engine.rootContext()->setContextProperty("startHidden", startHidden);
     engine.rootContext()->setContextProperty("initialCommand", initialCommand);
 

@@ -40,6 +40,7 @@ endif()
 set(HEADERS
     src/PropertyMacros.h
     src/app/ApplicationCommandServer.h
+    src/app/ClipboardHelper.h
     src/app/WindowDismissHelper.h
     src/settings/Setting.h
     src/translation/TranslationRequest.h
@@ -64,6 +65,7 @@ set(HEADERS
 set(SOURCES
     src/main.cpp
     src/app/ApplicationCommandServer.cpp
+    src/app/ClipboardHelper.cpp
     src/app/WindowDismissHelper.cpp
     src/settings/Setting.cpp
     src/translation/TranslationRequest.cpp

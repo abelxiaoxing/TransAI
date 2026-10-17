@@ -358,12 +358,13 @@ Item {
     }
 
     // 置顶按钮：唯一状态源是 root.pinned，图标随其派生，不再单独维护 state
+    // Vertically aligned with the indictor/copy-button row so the three form
+    // one visual line.
     Image {
         id: pinButton
         width: 22
         height: 22
-        anchors.top: inputItem.bottom
-        anchors.topMargin: 10
+        anchors.verticalCenter: indictor.verticalCenter
         anchors.right: inputItem.right
         source: root.pinned ? "qrc:///res/thumbtack_yes.png" : "qrc:///res/thumbtack_no.png"
         MouseArea {
@@ -385,6 +386,36 @@ Item {
         font.pixelSize: root.fontSizeNormal
         font.weight: Font.DemiBold
         z:2
+    }
+
+    // Copies the whole result text without requiring a selection. Shows a
+    // brief "Copied ✓" confirmation (same feedback pattern as "Saved ✓").
+    Text {
+        id: copyButton
+        z: 2
+        visible: result.text.length > 0
+        anchors.right: pinButton.left
+        anchors.rightMargin: 10
+        anchors.verticalCenter: indictor.verticalCenter
+        text: copyFeedbackTimer.running ? I18n.t("Copied ✓") : I18n.t("Copy")
+        color: copyFeedbackTimer.running ? root.accent
+                                         : (copyArea.containsMouse ? root.accentHover : root.mutedForeground)
+        font.pixelSize: root.fontSizeSmall
+        font.weight: Font.DemiBold
+        MouseArea {
+            id: copyArea
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: {
+                clipboard.setText(result.text)
+                copyFeedbackTimer.restart()
+            }
+        }
+        Timer {
+            id: copyFeedbackTimer
+            interval: 1500
+        }
     }
 
     Item{

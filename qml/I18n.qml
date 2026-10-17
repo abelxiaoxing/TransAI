@@ -89,6 +89,8 @@ QtObject {
         "Translate": "翻译",
         "Explain Word": "单词讲解",
         "Correct Grammar": "语法纠错",
+        "Copy": "复制",
+        "Copied ✓": "已复制 ✓",
         "stop": "停止",
 
         // Tray menu
