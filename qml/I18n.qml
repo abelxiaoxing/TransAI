@@ -93,6 +93,30 @@ QtObject {
         "Copied ✓": "已复制 ✓",
         "stop": "停止",
 
+        // App-generated error messages (C++ services emit these English
+        // strings; they double as table keys. Dynamic server payloads are
+        // not listed here and fall through untranslated on purpose).
+        "Please enter text to translate": "请输入要翻译的文本",
+        "Please select a model": "请选择模型",
+        "Please provide the correct apikey": "请提供正确的 API 密钥",
+        "Translation timed out: no data from the server": "翻译超时：服务器没有返回数据",
+        "Network error: could not reach the server": "网络错误：无法连接服务器",
+        "Proxy error: could not reach the server through the proxy": "代理错误：无法通过代理连接服务器",
+        "Request rejected: check the API key, model name and server URL": "请求被拒绝：请检查 API 密钥、模型名称和服务器地址",
+        "Protocol error: unexpected response from the server": "协议错误：服务器返回了意外的响应",
+        "Server error: the API server failed to handle the request": "服务器错误：API 服务器处理请求失败",
+        "Network error": "网络错误",
+        "No screenshot image was provided": "没有提供截图",
+        "The captured image is empty": "截取的图片为空",
+        "The captured image is too small": "截取的图片过小",
+        "Failed to encode the image as JPEG": "图片 JPEG 编码失败",
+        "Clipboard is unavailable": "剪贴板不可用",
+        "Failed to simulate copy": "模拟复制失败",
+        "Clipboard did not change after copy": "复制后剪贴板内容未变化",
+        "No selected text found": "未检测到选中文本",
+        "The selected region is outside the captured screen": "所选区域不在截取的屏幕范围内",
+        "The selected model may not support image input. Open Settings and choose a vision-capable model for screenshot translation.": "当前模型可能不支持图片输入。请打开设置，为截图翻译选择一个视觉模型。",
+
         // Tray menu
         "Translate selection": "翻译选中文本",
         "Translate screenshot": "截图翻译",

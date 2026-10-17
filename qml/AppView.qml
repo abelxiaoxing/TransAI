@@ -106,13 +106,13 @@ Item {
         visionService.abort()
         root.screenshotSession = true
         root.screenshotFailed = true
-        result.text = message
+        result.text = localizeError(message)
     }
 
     function showSelectionError(message) {
         translationService.abort()
         selectionUnavailable = true
-        result.text = message
+        result.text = localizeError(message)
     }
 
     // Mode selector state is setting.translationMode (persisted); indexes
@@ -136,6 +136,22 @@ Item {
         if (setting.translationMode === 1) return I18n.t("Explanation")
         if (setting.translationMode === 2) return I18n.t("Corrected")
         return I18n.t("Translated")
+    }
+
+    // Localizes the fixed, app-generated error strings while leaving dynamic
+    // server payloads untouched. Composite "<guidance>\n\n<raw api error>"
+    // messages (e.g. the vision-unsupported hint) translate only the head
+    // when it has a table entry; the raw tail is kept for troubleshooting.
+    function localizeError(message) {
+        const sep = message.indexOf("\n\n")
+        if (sep > 0) {
+            const head = message.substring(0, sep)
+            const translatedHead = I18n.t(head)
+            if (translatedHead !== head) {
+                return translatedHead + message.substring(sep)
+            }
+        }
+        return I18n.t(message)
     }
 
     AppBackground {
@@ -590,7 +606,7 @@ Item {
         }
         onResponseErrorChanged: {
             if (responseError !== "") {
-                result.text = responseError
+                result.text = localizeError(responseError)
             }
         }
         onTranslationStopped: {
@@ -616,7 +632,7 @@ Item {
         }
         onResponseErrorChanged: {
             if (responseError !== "") {
-                result.text = responseError
+                result.text = localizeError(responseError)
             }
         }
         onTranslationStopped: {
