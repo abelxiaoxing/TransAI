@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxtst-dev libgl1-mesa-dev \
+            libxkbcommon-dev libdbus-1-dev
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.9.*'
+          cache: true
+          # Explicit archive list: qtbase covers Core/Network/DBus/Test,
+          # qtdeclarative covers Quick/QML. Deterministic and smaller than
+          # the default essential set.
+          archives: qtbase qtdeclarative
+
+      - name: Configure & build
+        run: |
+          cmake -B build -D CMAKE_BUILD_TYPE=Release
+          cmake --build build -j$(nproc)
+
+      - name: Unit tests
+        run: ctest --test-dir build --output-on-failure
+
+      # Headless smoke: the first instance stays resident holding the
+      # single-instance socket, the second forwards --translate-selection and
+      # exits. Under offscreen the GlobalShortcutManager refuses registration
+      # by design (logged, not fatal). QT_FORCE_STDERR_LOGGING keeps qDebug on
+      # stderr so failures are visible in the Actions log.
+      - name: Headless smoke test
+        run: |
+          export QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1
+          # If the first instance died before creating the command socket, the
+          # second would become the server itself and block forever — the
+          # timeouts turn that into a fast, visible step failure instead.
+          timeout 30 ./build/TransAI --background &
+          APP_PID=$!
+          sleep 5
+          timeout 15 ./build/TransAI --translate-selection
+          kill $APP_PID
