@@ -23,9 +23,10 @@ jobs:
           version: '6.9.*'
           cache: true
           # Explicit archive list: qtbase covers Core/Network/DBus/Test,
-          # qtdeclarative covers Quick/QML. Deterministic and smaller than
-          # the default essential set.
-          archives: qtbase qtdeclarative
+          # qtdeclarative covers Quick/QML, icu holds the bundled
+          # libicui18n/libicuuc/libicudata that the prebuilt Qt binaries link
+          # against (Ubuntu 24.04 ships ICU 74, Qt 6.9 wants .73).
+          archives: qtbase qtdeclarative icu
 
       - name: Configure & build
         run: |
