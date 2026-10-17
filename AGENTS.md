@@ -36,6 +36,7 @@ src/
 ├── PropertyMacros.h                 # Q_PROPERTY_AUTO macro and common defs
 ├── app/
 │   ├── ApplicationCommandServer.*  # Local socket server for single-instance commands
+│   ├── ClipboardHelper.*           # QML-facing QClipboard wrapper (context property "clipboard"; copies result text without a selection)
 ├── input/
 │   ├── GlobalShortcutManager.*     # QHotkey-based global hotkeys (QML type; disabled on Wayland)
 │   ├── GlobalClickMonitor.*        # Passive evdev BTN_LEFT observer for click-outside-to-hide on Wayland (context property; needs /dev/input read access)
@@ -94,7 +95,7 @@ scripts/                            # Windows build/publish scripts
 
 ### Settings Storage
 - Location: `QStandardPaths::AppConfigLocation` (`~/.config/TransAI/config.json` on Linux)
-- Format: JSON with `configVersion`; per-provider keys (`openaiApiServer/openaiApiKey/openaiModel`, `ollamaApiServer/ollamaModel`) plus active `provider`, `shortCut`, `displayLanguage` (`en` / `zh-CN`; absent/empty falls back to the system UI language), and screenshot-translation keys (`screenshotShortCut`, `screenshotTranslateMode` = `auto`|`vision`, `screenshotVisionModel` (empty = follow current model), `screenshotMaxImageWidth` = 1600, `screenshotJpegQuality` = 85). Legacy top-level `apiKey/apiServer/model` are READ as one-way migration fallbacks but no longer written; the removed `thinkingMode` key is simply dropped on the next save
+- Format: JSON with `configVersion`; per-provider keys (`openaiApiServer/openaiApiKey/openaiModel`, `ollamaApiServer/ollamaModel`) plus active `provider`, `shortCut`, `displayLanguage` (`en` / `zh-CN`; absent/empty falls back to the system UI language), main-view preferences (`targetLanguage` — empty = not set; `translationMode` = 0|1|2 mirroring `TranslationMode`, clamped on load), and screenshot-translation keys (`screenshotShortCut`, `screenshotTranslateMode` = `auto`|`vision`, `screenshotVisionModel` (empty = follow current model), `screenshotMaxImageWidth` = 1600, `screenshotJpegQuality` = 85). Legacy top-level `apiKey/apiServer/model` are READ as one-way migration fallbacks but no longer written; the removed `thinkingMode` key is simply dropped on the next save
 - API keys are stored in plain text; the file is chmod 600 on Unix
 
 ### Single-Instance & Selection Translation
@@ -130,8 +131,11 @@ scripts/                            # Windows build/publish scripts
 ## Testing Strategy
 
 ### Current State
+- CI (`.github/workflows/ci.yml`) builds on Ubuntu with Qt 6.9 and runs the
+  full test suite plus a headless smoke test on every push/PR
 - Unit tests for the pure-logic modules live in `tests/` (StreamParser,
-  ThinkingPolicy, ProviderEndpointBuilder), built when Qt6::Test is
+  ThinkingPolicy, ProviderEndpointBuilder, I18n, VisionModelCapability,
+  ImagePayloadBuilder, Setting persistence), built when Qt6::Test is
   available:
   ```bash
   cmake -D CMAKE_BUILD_TYPE=Release -D CMAKE_PREFIX_PATH="$QT_PATH" ..
@@ -169,6 +173,7 @@ scripts/                            # Windows build/publish scripts
 - C++ backend logic with QML frontend; clear separation between services and UI
 - Resources embedded via Qt resource system (TransAI.qrc)
 - i18n: UI display language (English / 简体中文) is handled by the `qml/I18n.qml` singleton on top of `Setting.displayLanguage`; wrap user-visible QML strings in `I18n.t(...)` and add Chinese entries to its `_zhTable`. Deliberately outside the Qt Linguist toolchain (lupdate/lrelease are not available in every build environment), so no `.ts`/`.qm` files exist
+- Error i18n: fixed English error strings emitted by C++ services double as `_zhTable` keys; QML display points wrap them via `AppView.localizeError()` (composite "<guidance>\n\n<raw>" messages translate only the head; dynamic server payloads stay in English on purpose). Known limitation: an already-displayed error does not re-translate on a live language switch (imperative assignment, transient UI)
 
 ## Common Development Tasks
 
