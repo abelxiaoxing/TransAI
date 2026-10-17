@@ -284,7 +284,8 @@ private:
 windows:
   runs-on: windows-latest
   steps: checkout → install-qt-action (6.9.*, archives qtbase qtdeclarative,
-         tools tools_mingw1310) → 优先使用 Qt 自带 MinGW → cmake -B build
+         tools: 'tools_mingw1310') → 校验 Qt 自带 MinGW 存在（Tools\mingw*_64\bin\gcc.exe
+         通配查找，缺失即失败，不回退 runner 系统 gcc）→ cmake -B build
        → cmake --build build → ctest
 macos: # 同构，macos-latest
 ```
@@ -296,7 +297,9 @@ macos: # 同构，macos-latest
 - 接入过程中 CI 确实抓到了真问题，验证了这两个 job 的价值：
   `SecretStoreMac.mm` / `VisionOcrEngine.mm` 缺 `Foundation` 导入、
   `SecretStoreWindows.cpp` 的 const 限定符、以及 Windows 上用 Qt 自带
-  MinGW 而非 runner 系统 gcc（`__imp___argc` 链接失败）。
+  MinGW 而非 runner 系统 gcc（`__imp___argc` 链接失败）。转为阻断后，
+  “找不到 Qt 自带 MinGW”这一步从 `::warning::` 改为直接失败：阻断门禁
+  下回退到系统 gcc 只会把一行提示变成远处的链接错误。
 
 ---
 

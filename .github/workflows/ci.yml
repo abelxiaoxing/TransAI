@@ -54,7 +54,7 @@ jobs:
           kill $APP_PID
 
   # Cross-platform coverage: build + unit tests only (no GUI smoke on
-  # headless runners). Both jobs are blocking gate failures, like linux.
+  # headless runners). Both jobs are blocking gates, like linux.
   windows:
     runs-on: windows-latest
     steps:
@@ -73,17 +73,26 @@ jobs:
           # time (Qt6EntryPoint references the dllimport flavour).
           tools: 'tools_mingw1310'
 
-      - name: Prefer Qt's matching MinGW toolchain
+      # The job is a blocking gate, so the toolchain check fails fast instead of
+      # warning: the runner's system gcc cannot link Qt's prebuilt MinGW
+      # archives (`__imp___argc`), so a fallback would only turn a one-line
+      # message into a confusing link error far away from its cause.
+      - name: Require Qt's matching MinGW toolchain
         shell: pwsh
         run: |
           $qtRoot = Split-Path (Split-Path $env:QT_ROOT_DIR)
-          $mingw = Join-Path $qtRoot 'Tools\mingw1310_64\bin'
-          if (Test-Path $mingw) {
-            $mingw | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-            Write-Host "Using Qt MinGW toolchain: $mingw"
-          } else {
-            Write-Host "::warning::Qt MinGW toolchain not found at $mingw; using the system compiler"
+          # Version-agnostic lookup (`mingw1310_64` today, anything newer later)
+          # so a Qt toolchain bump does not break this step for the wrong reason.
+          $mingw = Get-ChildItem -Path (Join-Path $qtRoot 'Tools') -Directory -Filter 'mingw*_64' -ErrorAction SilentlyContinue |
+            ForEach-Object { Join-Path $_.FullName 'bin' } |
+            Where-Object { Test-Path (Join-Path $_ 'gcc.exe') } |
+            Sort-Object -Descending |
+            Select-Object -First 1
+          if (-not $mingw) {
+            throw "No Qt MinGW toolchain (Tools\mingw*_64\bin\gcc.exe) under $qtRoot; refusing to build with the runner's system gcc"
           }
+          $mingw | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          Write-Host "Using Qt MinGW toolchain: $mingw"
           gcc --version
           Write-Host "which gcc: $((Get-Command gcc).Source)"
 
