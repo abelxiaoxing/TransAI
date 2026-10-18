@@ -61,7 +61,10 @@ void TestApplicationCommandServer::forwardsCommandToRunningInstance() {
     // a stale TODO.
     QEXPECT_FAIL("", "QLocalServer forwarding is not verified on Windows yet", Abort);
 #endif
-    QVERIFY(ApplicationCommandServer::sendCommandToRunningInstance(QStringLiteral("translate-selection")));
+    QString error;
+    const bool forwarded = ApplicationCommandServer::sendCommandToRunningInstance(
+        QStringLiteral("translate-selection"), 500, &error);
+    QVERIFY2(forwarded, qPrintable(error));
 
     QTRY_COMPARE(receivedSpy.count(), 1);
     QCOMPARE(receivedSpy.takeFirst().at(0).toString(), QStringLiteral("translate-selection"));
@@ -88,7 +91,10 @@ void TestApplicationCommandServer::staleSocketArtifactIsReclaimed() {
     // pass.
     QEXPECT_FAIL("", "QLocalServer forwarding is not verified on Windows yet", Abort);
 #endif
-    QVERIFY(ApplicationCommandServer::sendCommandToRunningInstance(QStringLiteral("show")));
+    QString error;
+    const bool forwarded = ApplicationCommandServer::sendCommandToRunningInstance(
+        QStringLiteral("show"), 500, &error);
+    QVERIFY2(forwarded, qPrintable(error));
     QTRY_COMPARE(receivedSpy.count(), 1);
 }
 

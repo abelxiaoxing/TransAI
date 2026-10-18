@@ -16,27 +16,45 @@ ApplicationCommandServer::ApplicationCommandServer(QObject* parent)
     connect(&m_server, &QLocalServer::newConnection, this, &ApplicationCommandServer::acceptConnections);
 }
 
-bool ApplicationCommandServer::sendCommandToRunningInstance(const QString& command, int timeoutMs)
+bool ApplicationCommandServer::sendCommandToRunningInstance(const QString& command, int timeoutMs,
+                                                           QString* error)
 {
-    if (command.trimmed().isEmpty()) {
+    auto fail = [error](const QString& reason) {
+        if (error) {
+            *error = reason;
+        }
         return false;
+    };
+
+    if (command.trimmed().isEmpty()) {
+        return fail(QStringLiteral("the command is empty"));
     }
 
+    const QString name = serverName();
     QLocalSocket socket;
-    socket.connectToServer(serverName(), QIODevice::WriteOnly);
+    socket.connectToServer(name, QIODevice::WriteOnly);
     if (!socket.waitForConnected(timeoutMs)) {
-        return false;
+        return fail(QStringLiteral("could not connect to %1 within %2 ms: %3")
+                        .arg(name)
+                        .arg(timeoutMs)
+                        .arg(socket.errorString()));
     }
 
     const QByteArray payload = command.trimmed().toUtf8() + '\n';
     if (socket.write(payload) != payload.size()) {
-        return false;
+        return fail(QStringLiteral("could not write to %1: %2").arg(name, socket.errorString()));
     }
     if (!socket.waitForBytesWritten(timeoutMs)) {
-        return false;
+        return fail(QStringLiteral("the write to %1 did not complete within %2 ms: %3")
+                        .arg(name)
+                        .arg(timeoutMs)
+                        .arg(socket.errorString()));
     }
 
     socket.disconnectFromServer();
+    if (error) {
+        error->clear();
+    }
     return true;
 }
 
