@@ -8,6 +8,8 @@ param (
 
 # archiveName: 5.15.2-win64_mingw81
 
+. "$PSScriptRoot/ocr-models.ps1"
+
 $scriptDir = $PSScriptRoot
 $currentDir = Get-Location
 Write-Host "currentDir" $currentDir
@@ -22,17 +24,7 @@ function Main() {
     windeployqt --qmldir . --plugindir $archiveName\plugins --no-translations --compiler-runtime $archiveName\$targetName
     # 内置 OCR 模型（见 scripts/fetch_ocr_models.sh）。缺失就中止打包：
     # 打出一个 OCR 永远不可用的包比打不出包更难排查。
-    $ocrModels = @(
-        'ch_PP-OCRv3_det_infer.param', 'ch_PP-OCRv3_det_infer.bin',
-        'ch_PP-OCRv3_rec_infer.param', 'ch_PP-OCRv3_rec_infer.bin',
-        'ppocr_keys_v1.txt'
-    )
-    $missing = $ocrModels | Where-Object { -not (Test-Path (Join-Path 'res\ocr\models' $_)) }
-    if ($missing) {
-        throw ("res/ocr/models is incomplete (missing: {0}). Run ./scripts/fetch_ocr_models.sh before packaging." -f ($missing -join ', '))
-    }
-    New-Item -ItemType Directory -Force "$archiveName\ocr\models" | Out-Null
-    Copy-Item res\ocr\models\* "$archiveName\ocr\models\"
+    Copy-OcrModelsTo -Destination "$archiveName\ocr\models"
     cp $Qt6_DIR\bin\libgcc_s_seh-1.dll $archiveName\
     cp $Qt6_DIR\bin\libstdc++-6.dll $archiveName\
     cp $Qt6_DIR\bin\libwinpthread-1.dll $archiveName\

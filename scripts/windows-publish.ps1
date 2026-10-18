@@ -18,6 +18,8 @@ param (
 # archiveName: 5.9.9-win32_msvc2015
 # msvcArch: x86
 
+. "$PSScriptRoot/ocr-models.ps1"
+
 $scriptDir = $PSScriptRoot
 $currentDir = Get-Location
 Write-Host "currentDir" $currentDir
@@ -35,17 +37,7 @@ function Main() {
     Remove-Item -Path $archiveName -Include $excludeList -Recurse -Force
     # 内置 OCR 模型（见 scripts/fetch_ocr_models.sh）。缺失就中止打包：
     # 打出一个 OCR 永远不可用的包比打不出包更难排查。
-    $ocrModels = @(
-        'ch_PP-OCRv3_det_infer.param', 'ch_PP-OCRv3_det_infer.bin',
-        'ch_PP-OCRv3_rec_infer.param', 'ch_PP-OCRv3_rec_infer.bin',
-        'ppocr_keys_v1.txt'
-    )
-    $missing = $ocrModels | Where-Object { -not (Test-Path (Join-Path 'res\ocr\models' $_)) }
-    if ($missing) {
-        throw ("res/ocr/models is incomplete (missing: {0}). Run ./scripts/fetch_ocr_models.sh before packaging." -f ($missing -join ', '))
-    }
-    New-Item -ItemType Directory -Force "$archiveName\ocr\models" | Out-Null
-    Copy-Item res\ocr\models\* "$archiveName\ocr\models\"
+    Copy-OcrModelsTo -Destination "$archiveName\ocr\models"
     # 拷贝vcRedist dll
     $redistDll="{0}{1}\*.CRT\*.dll" -f $env:vcToolsRedistDir.Trim(),$env:msvcArch
     Copy-Item $redistDll $archiveName\
