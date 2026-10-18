@@ -4,9 +4,13 @@ on:
   push:
     branches: [master]
   pull_request:
+  # Manual only: the Windows packaging scripts are not part of the normal build
+  # path, so nothing exercised their fail-fast OCR check until now.
+  workflow_dispatch:
 
 jobs:
   linux:
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
@@ -32,6 +36,13 @@ jobs:
       # (13 MB of binaries). Without them the end-to-end OCR test skips itself.
       - name: Fetch bundled OCR models
         run: ./scripts/fetch_ocr_models.sh
+
+      # A syntax error in these would only surface for whoever runs them by
+      # hand (install / model fetch), so parse them here: ~1 s.
+      - name: Syntax-check shell scripts
+        run: |
+          bash -n build_install.sh
+          bash -n scripts/fetch_ocr_models.sh
 
       # ncnn is built from source through FetchContent on every clean runner
       # ("CPU-only, no Vulkan") and dominates the build time. ccache is
@@ -87,6 +98,7 @@ jobs:
   # AddressSanitizer + UndefinedBehaviorSanitizer. Leak detection is disabled
   # because Qt/ICU keep intentional global allocations alive at exit.
   sanitizers:
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
@@ -133,6 +145,7 @@ jobs:
   # Cross-platform coverage: build + unit tests only (no GUI smoke on
   # headless runners). Both jobs are blocking gates, like linux.
   windows:
+    if: github.event_name != 'workflow_dispatch'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
@@ -225,6 +238,7 @@ jobs:
             Select-Object -First 6 TimeCreated, ProviderName, Message | Format-List
 
   macos:
+    if: github.event_name != 'workflow_dispatch'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
@@ -241,3 +255,81 @@ jobs:
           cmake -B build -D CMAKE_BUILD_TYPE=Release
           cmake --build build -j$(sysctl -n hw.ncpu)
           ctest --test-dir build --output-on-failure
+
+  # Manual only (workflow_dispatch). Exercises the OCR guard in the Windows
+  # packaging scripts, which the normal jobs never touch: a run without the
+  # model files must stop instead of producing an archive whose OCR mode can
+  # never work.
+  #
+  # No Qt or compiler is involved on purpose — `build\*` and the three MinGW
+  # runtime DLLs are stubs and windeployqt is a no-op shim, so the job tests the
+  # guard and the script plumbing, not Qt's deployment. Both .ps1 files are
+  # parser-checked; windows-publish.ps1 (MSVC) cannot run here (it needs the VS
+  # redist/WinSDK environment), but it shares scripts/ocr-models.ps1 with the
+  # MinGW script, which is covered end to end.
+  packaging-dryrun:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Fetch bundled OCR models
+        shell: bash
+        run: |
+          export PATH="/c/Program Files/7-Zip:$PATH"
+          ./scripts/fetch_ocr_models.sh
+
+      - name: Stub the build output, the Qt runtime and windeployqt
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build | Out-Null
+          Set-Content build\TransAI.exe 'stub'
+          $qt = Join-Path $env:RUNNER_TEMP 'qtstub'
+          New-Item -ItemType Directory -Force (Join-Path $qt 'bin') | Out-Null
+          foreach ($dll in @('libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll')) {
+            Set-Content (Join-Path $qt "bin\$dll") 'stub'
+          }
+          $shim = Join-Path $env:RUNNER_TEMP 'shim'
+          New-Item -ItemType Directory -Force $shim | Out-Null
+          Set-Content (Join-Path $shim 'windeployqt.cmd') '@exit /b 0'
+          $shim | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "QTSTUB=$qt" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Syntax-check the packaging scripts
+        shell: pwsh
+        run: |
+          foreach ($file in Get-ChildItem scripts\*.ps1) {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$null, [ref]$errors) | Out-Null
+            if ($errors) { throw "$($file.Name): $($errors[0].Message)" }
+          }
+
+      - name: Package with models (must succeed and ship the models)
+        shell: pwsh
+        run: |
+          ./scripts/windows-mingw-publish.ps1 -archiveName pkg-ok -targetName TransAI -Qt6_DIR $env:QTSTUB
+          if (-not (Test-Path pkg-ok.zip)) { throw 'pkg-ok.zip was not produced' }
+          Expand-Archive pkg-ok.zip -DestinationPath expanded-ok -Force
+          foreach ($rel in @('pkg-ok\TransAI.exe', 'pkg-ok\ocr\models\ch_PP-OCRv3_det_infer.bin',
+                             'pkg-ok\ocr\models\ch_PP-OCRv3_rec_infer.bin', 'pkg-ok\ocr\models\ppocr_keys_v1.txt')) {
+            if (-not (Test-Path (Join-Path expanded-ok $rel))) { throw "$rel missing from the archive" }
+          }
+
+      - name: Package without models (must abort)
+        shell: pwsh
+        run: |
+          Move-Item res\ocr\models res\ocr\models.bak
+          try {
+            $failed = $false
+            try {
+              ./scripts/windows-mingw-publish.ps1 -archiveName pkg-broken -targetName TransAI -Qt6_DIR $env:QTSTUB
+            } catch {
+              $failed = $true
+              Write-Host "refused as expected: $($_.Exception.Message)"
+              if ($_.Exception.Message -notmatch 'is incomplete') { throw 'unexpected error text' }
+            }
+            if (-not $failed) { throw 'packaging succeeded without the OCR models' }
+            if (Test-Path pkg-broken.zip) { throw 'an archive was produced despite the missing models' }
+          } finally {
+            Move-Item res\ocr\models.bak res\ocr\models
+          }
