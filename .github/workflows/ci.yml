@@ -168,6 +168,30 @@ jobs:
       - name: Unit tests
         run: ctest --test-dir build --output-on-failure
 
+      # On Windows a test process can die before QTest prints anything, leaving
+      # ctest with an empty failure report. Dump the per-test log, the platform
+      # plugins, direct runs and the crash events from the Application log.
+      - name: Diagnose failing tests
+        if: failure()
+        shell: pwsh
+        run: |
+          Write-Host '--- LastTest.log (tail) ---'
+          if (Test-Path build\Testing\Temporary\LastTest.log) {
+            Get-Content build\Testing\Temporary\LastTest.log -Tail 300
+          }
+          Write-Host '--- platform plugins ---'
+          Get-ChildItem "$env:QT_ROOT_DIR\plugins\platforms" -ErrorAction SilentlyContinue
+          foreach ($t in @('tst_rapidocr','tst_ocrengine','tst_applicationcommandserver','tst_windowdismiss')) {
+            Write-Host "--- direct run: $t ---"
+            $env:QT_QPA_PLATFORM = 'offscreen'
+            & "build\tests\$t.exe" 2>&1 | Select-Object -First 40
+            Write-Host "exit=$LASTEXITCODE"
+          }
+          Write-Host '--- Application event log (crashes) ---'
+          Get-WinEvent -LogName Application -MaxEvents 40 -ErrorAction SilentlyContinue |
+            Where-Object { $_.ProviderName -match 'Application Error|Windows Error Reporting|Application Hang' } |
+            Select-Object -First 6 TimeCreated, ProviderName, Message | Format-List
+
   macos:
     runs-on: macos-latest
     steps:

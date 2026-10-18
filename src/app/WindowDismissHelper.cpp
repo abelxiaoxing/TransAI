@@ -24,17 +24,27 @@ WindowDismissHelper::WindowDismissHelper(QObject *parent)
 
 bool WindowDismissHelper::shouldHideOnDeactivate(qint64 msecsSincePointerLeave) const
 {
-#if defined(Q_OS_LINUX)
+    // Headless platforms (offscreen/minimal/dummy) never produce a real user
+    // click, so a deactivation there must never hide the window. Checked on
+    // every OS: the tests run offscreen on all three platforms.
     const QString platform = QGuiApplication::platformName();
+    if (platform == QStringLiteral("offscreen") || platform == QStringLiteral("minimal")
+        || platform == QStringLiteral("dummy")) {
+        return false;
+    }
+
+#if defined(Q_OS_LINUX)
     if (platform == QStringLiteral("xcb")) {
         return leftButtonPressedX11();
     }
     if (platform.startsWith(QStringLiteral("wayland"))) {
         return msecsSincePointerLeave >= 0 && msecsSincePointerLeave > kPointerLeaveGraceMs;
     }
-    // offscreen/minimal and anything else: never auto-hide.
+    // Any other platform (e.g. directfb): never auto-hide.
     return false;
 #else
+    // Windows/macOS deliver no reliable "which button" information, so any
+    // deactivation counts as a click.
     Q_UNUSED(msecsSincePointerLeave);
     return true;
 #endif

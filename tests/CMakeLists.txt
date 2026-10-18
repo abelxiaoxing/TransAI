@@ -174,5 +174,7 @@ add_executable(tst_shortcutconflict
     tst_shortcutconflict.cpp
 )
 target_include_directories(tst_shortcutconflict PRIVATE ${CMAKE_SOURCE_DIR}/src)
-target_link_libraries(tst_shortcutconflict PRIVATE Qt6::Gui Qt6::Test)
+# No GUI in this suite: linking only Qt6::Test makes QTEST_MAIN use a
+# QCoreApplication, which is what lets it run on a headless CI runner.
+target_link_libraries(tst_shortcutconflict PRIVATE Qt6::Test)
 add_test(NAME tst_shortcutconflict COMMAND tst_shortcutconflict)
