@@ -14,6 +14,8 @@ TransAI is a cross-platform AI-powered translation application built with Qt6 an
 ### Build Process
 ```bash
 # Fetch the bundled OCR models first (git-ignored, ~13 MB, pinned checksums)
+./scripts/fetch_ocr_models.sh
+
 # Configure and build
 mkdir build && cd build
 cmake -D CMAKE_BUILD_TYPE=Release -D CMAKE_PREFIX_PATH="$QT_PATH" ..
@@ -57,8 +59,12 @@ src/
 │   ├── Setting.*                   # config.json load/save + active provider config
 │   └── SecretStore*.h/cpp/mm       # OS keychain for the API key (libsecret / Keychain / DPAPI; null fallback)
 ├── ocr/
-│   ├── OcrEngine.h                 # OCR backend interface + language-selection helpers (context property "ocrEngine")
-│   ├── TesseractOcrEngine.cpp      # Linux/Windows backend: tesseract CLI via QProcess (optional at runtime)
+│   ├── OcrEngine.h                 # OCR backend interface (context property "ocrEngine") + per-backend factories
+│   ├── OcrEngineFactory.cpp        # createOcrEngine(): vision / bundled ncnn / tesseract / unavailable
+│   ├── RapidOcrEngine.cpp          # Linux/Windows default: bundled PP-OCR det+rec on ncnn, in-process
+│   ├── OcrPostProcess.*            # Pure helpers: score map → boxes, reading order, CTC decode (unit-tested)
+│   ├── OcrModelLocator.*           # Pure helper: bundled model file discovery (env/override/app dir/install)
+│   ├── TesseractOcrEngine.cpp      # Build-time fallback: tesseract CLI via QProcess
 │   ├── VisionOcrEngine.mm          # macOS backend: VNRecognizeTextRequest (Vision framework)
 │   └── OcrEngineNull.cpp           # Unavailable fallback backend
 ├── translation/
@@ -129,7 +135,7 @@ scripts/                            # Windows build/publish scripts
 ### Screenshot Translation (multimodal + OCR)
 - Flow: trigger (tray/hotkey/CLI) → hide window → `ScreenshotCaptureService` → routed by `screenshotTranslateMode`: the vision path (`VisionTranslationService`) streams into the shared result panel; the OCR path (`OcrEngine` → `TranslationService` with mode forced to Translate) recognizes text first, shows it in the input panel, then streams the translation. The OCR branch stores the recognized text as the session's source, so the history entry keeps both the `[Screenshot]` marker and the text. Text/vision/OCR sessions abort each other so exactly one owns the panel (`ocrBusy` keeps the status pill honest during recognition)
 - Mode routing (`AppView.effectiveScreenshotMode()`): explicit `vision`/`ocr` win; `auto` = vision when the effective screenshot model looks vision-capable, else OCR when an engine is available, else vision (which then surfaces the vision-unsupported guidance)
-- OCR backends (`src/ocr/`): tesseract CLI via QProcess on Linux/Windows (optional at runtime — absent binary → `available=false` and the UI says so; language packs probed via `--list-langs`, preferring `chi_sim+eng`), Vision framework (`VNRecognizeTextRequest`, zh-Hans+en) on macOS. QML always sees a valid `ocrEngine` context property
+- OCR backends (`src/ocr/`): **bundled RapidOCR** (PP-OCRv3 mobile det+rec on ncnn, in-process, ~13 MB of models fetched by `scripts/fetch_ocr_models.sh` into the git-ignored `res/ocr/models/`) is the default on Linux/Windows; the tesseract CLI backend remains only as a build-time fallback (`-DTRANSAI_BUNDLED_OCR=OFF`); macOS uses the Vision framework (`VNRecognizeTextRequest`, zh-Hans+en). QML always sees a valid `ocrEngine` context property. See `docs/phase-6-bundled-ocr.md` for the pipeline, the size/speed profiles and the known limitations (axis-aligned boxes only, no angle classifier)
 - Wayland capture requires xdg-desktop-portal (system UI handles region selection); X11/Windows/macOS grab every screen and open the in-app fullscreen region-selection overlay (`qml/RegionSelectorWindow.qml`, one per screen; drag = select, Esc/right-click = cancel)
 - The vision request reuses provider/server/key/model with the `screenshotVisionModel` override (empty = follow current); image payloads never touch `PromptBuilder`, and QML never sees base64
 - Portal handle tokens must be valid D-Bus object-path elements — strip dashes from UUIDs
@@ -162,6 +168,10 @@ scripts/                            # Windows build/publish scripts
   three platforms gate the build)
 - A separate `sanitizers` job rebuilds and runs the whole suite with
   AddressSanitizer + UndefinedBehaviorSanitizer (`detect_leaks=0`)
+- The bundled OCR backend pulls ncnn in via FetchContent (CPU-only, SIMD
+  profile `portable` by default): the first configure spends ~5–10 min building
+  ncnn. `-DTRANSAI_BUNDLED_OCR=OFF` (or `-DTRANSAI_OCR_FETCH_NCNN=OFF` with no
+  system ncnn) keeps a build tesseract-only
 - The smoke test fails on QML runtime errors (`TypeError`, `ReferenceError`,
   `Unable to assign`, `qrc:/qml/….qml:N:` …), because a broken QML component
   leaves the process alive with an empty window
@@ -202,6 +212,7 @@ scripts/                            # Windows build/publish scripts
 - `docs/phase-2*.md` - Selection/OCR/UI blueprints (2A/2B implemented; 2C/2D superseded by phase-3/4/5)
 - `docs/phase-4-optimization-plan.md` - Post-Phase-3 optimization plan (StreamingChatClient extraction, overall timeout, streaming mock tests, history, Auto target language, geometry persistence, error re-translation, Wayland guidance, Win/macOS CI, SettingView split, SecretStore key storage, OCR loop, typed request APIs all implemented; live-translation debounce intentionally rejected)
 - `docs/phase-5-quality-hardening.md` - Post-Phase-4 hardening plan (correctness fixes, AppView split, performance, history privacy, test/CI gaps; all items implemented)
+- `docs/phase-6-bundled-ocr.md` - Bundled OCR backend (RapidOCR/PP-OCR on ncnn): pipeline, model sourcing/checksums, install layout, measured size/speed profiles, build options, limitations
 - `docs/hyprland-integration.md` - Wayland compositor notes
 
 ## Development Workflow

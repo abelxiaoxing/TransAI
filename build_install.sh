@@ -105,6 +105,16 @@ echo "   安装前缀: $INSTALL_PREFIX"
 echo "   程序路径: $APP_PATH"
 echo "============================================="
 
+# 0. 内置 OCR 模型（~13MB，不打进 git；缺失时 OCR 模式只会自报不可用）
+if [ ! -f "res/ocr/models/ch_PP-OCRv3_det_infer.param" ]; then
+    echo "[0/4] 未找到内置 OCR 模型，尝试下载..."
+    if ! ./scripts/fetch_ocr_models.sh; then
+        echo "[警告] OCR 模型下载失败：安装后“OCR”模式会提示模型缺失（其余功能不受影响）。"
+    fi
+else
+    echo "[0/4] 已找到内置 OCR 模型"
+fi
+
 # 1. 清理 build 目录，避免沿用旧的 /usr/local 安装前缀
 if [ -d "$BUILD_DIR" ]; then
     echo "[1/4] 检测到 $BUILD_DIR 目录，正在清理..."

@@ -166,7 +166,13 @@ Item {
         root.requestSourceText = ""
         if (effectiveScreenshotMode() === "ocr") {
             if (!ocrEngine.available) {
-                showScreenshotError("OCR is not available on this system: the tesseract command was not found")
+                // The backend knows why (missing models, no tesseract, ...);
+                // its reason is a fixed English sentence that localizeError()
+                // translates when the table has an entry for it.
+                const reason = ocrEngine.unavailableReason
+                showScreenshotError(reason.length > 0
+                                    ? reason
+                                    : "OCR is not available on this platform")
                 return
             }
             root.ocrBusy = true

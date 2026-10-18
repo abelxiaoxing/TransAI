@@ -46,6 +46,8 @@ set(HEADERS
     src/settings/Setting.h
     src/settings/SecretStore.h
     src/ocr/OcrEngine.h
+    src/ocr/OcrModelLocator.h
+    src/ocr/OcrPostProcess.h
     src/translation/PromptBuilder.h
     src/translation/StreamParser.h
     src/translation/StreamingChatClient.h
@@ -74,6 +76,7 @@ set(SOURCES
     src/app/TranslationHistory.cpp
     src/app/WindowDismissHelper.cpp
     src/settings/Setting.cpp
+    src/ocr/OcrEngineFactory.cpp
     src/translation/PromptBuilder.cpp
     src/translation/StreamParser.cpp
     src/translation/StreamingChatClient.cpp
@@ -97,6 +100,126 @@ set(RESOURCES
 )
 
 add_subdirectory(lib/)
+
+include(GNUInstallDirs)
+
+# ---------------------------------------------------------------------------
+# OCR backend selection
+#
+# Linux / Windows default to the **bundled** RapidOCR (PP-OCR on ncnn) backend:
+# the models ship with the app, recognition runs in-process, and the user does
+# not have to install anything. Building it pulls ncnn in through FetchContent
+# (a CPU-only, Vulkan-less static build) unless a system ncnn is found or
+# -DTRANSAI_BUNDLED_OCR=OFF is passed, which falls back to the old tesseract
+# CLI backend. macOS keeps the Vision framework (zero size, system-provided).
+# ---------------------------------------------------------------------------
+option(TRANSAI_BUNDLED_OCR "Build the self-contained RapidOCR (ncnn) OCR backend" ON)
+option(TRANSAI_OCR_FETCH_NCNN "Fetch and build ncnn when no system package is found" ON)
+# ncnn duplicates its CPU kernels per instruction-set variant, and those
+# variants dominate the linked size. Measured on x86-64 (PP-OCRv3 det+rec,
+# 900x300 screenshot), the profiles cost roughly:
+#   portable  ~6 MB added, works on any x86-64 (runtime SSE2/AVX dispatch)
+#   full      ~17 MB added, ~1.5x faster (AVX2/AVX-512/FMA variants)
+#   avx-only  ~3 MB added, same speed as portable, requires an AVX CPU (2011+)
+# Screenshot OCR runs on a worker thread behind a network request, so latency is
+# not critical: default to the portable profile.
+set(TRANSAI_OCR_NCNN_ISA "portable" CACHE STRING
+    "ncnn x86 SIMD profile for the OCR backend: portable | full | avx-only")
+set_property(CACHE TRANSAI_OCR_NCNN_ISA PROPERTY STRINGS portable full avx-only)
+set(TRANSAI_NCNN_GIT_TAG "20260526" CACHE STRING "ncnn git tag fetched for the OCR backend")
+set(TRANSAI_OCR_MODEL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/res/ocr/models" CACHE PATH
+    "Directory holding the bundled PP-OCR model files (scripts/fetch_ocr_models.sh)")
+
+# Adds the bundled OCR backend to `target` when it can be built, and otherwise
+# falls back to the tesseract CLI backend. Called from the platform blocks below.
+function(transai_setup_ocr_backend target)
+    set(use_ncnn OFF)
+
+    if(TRANSAI_BUNDLED_OCR)
+        find_package(ncnn QUIET)
+        if(NOT TARGET ncnn AND TRANSAI_OCR_FETCH_NCNN)
+            include(FetchContent)
+            # Only two small PP-OCR models are ever executed: no Vulkan, no
+            # tools, no OpenMP, no C API.
+            set(NCNN_VULKAN OFF CACHE BOOL "" FORCE)
+            set(NCNN_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+            set(NCNN_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+            set(NCNN_BUILD_BENCHMARK OFF CACHE BOOL "" FORCE)
+            set(NCNN_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+            set(NCNN_INSTALL_SDK OFF CACHE BOOL "" FORCE)
+            set(NCNN_OPENMP OFF CACHE BOOL "" FORCE)
+            set(NCNN_C_API OFF CACHE BOOL "" FORCE)
+            if(TRANSAI_OCR_NCNN_ISA STREQUAL "portable")
+                set(NCNN_AVX2 OFF CACHE BOOL "" FORCE)
+                set(NCNN_AVXVNNI OFF CACHE BOOL "" FORCE)
+                set(NCNN_AVX512 OFF CACHE BOOL "" FORCE)
+                set(NCNN_FMA OFF CACHE BOOL "" FORCE)
+                set(NCNN_FMA4 OFF CACHE BOOL "" FORCE)
+                set(NCNN_F16C OFF CACHE BOOL "" FORCE)
+                set(NCNN_XOP OFF CACHE BOOL "" FORCE)
+            elseif(TRANSAI_OCR_NCNN_ISA STREQUAL "avx-only")
+                set(NCNN_RUNTIME_CPU OFF CACHE BOOL "" FORCE)
+                set(NCNN_AVX2 OFF CACHE BOOL "" FORCE)
+                set(NCNN_AVXVNNI OFF CACHE BOOL "" FORCE)
+                set(NCNN_AVX512 OFF CACHE BOOL "" FORCE)
+                set(NCNN_FMA OFF CACHE BOOL "" FORCE)
+                set(NCNN_FMA4 OFF CACHE BOOL "" FORCE)
+                set(NCNN_F16C OFF CACHE BOOL "" FORCE)
+                set(NCNN_XOP OFF CACHE BOOL "" FORCE)
+            endif()
+            set(NCNN_PIXEL_DRAWING OFF CACHE BOOL "" FORCE)
+            set(NCNN_PIXEL_ROTATE OFF CACHE BOOL "" FORCE)
+            set(NCNN_PIXEL_AFFINE OFF CACHE BOOL "" FORCE)
+            message(STATUS "OCR backend: fetching ncnn ${TRANSAI_NCNN_GIT_TAG}")
+            FetchContent_Declare(ncnn
+                GIT_REPOSITORY https://github.com/Tencent/ncnn.git
+                GIT_TAG ${TRANSAI_NCNN_GIT_TAG}
+                GIT_SHALLOW TRUE)
+            FetchContent_MakeAvailable(ncnn)
+        endif()
+        if(TARGET ncnn)
+            set(use_ncnn ON)
+        else()
+            message(WARNING
+                "OCR backend: ncnn unavailable, falling back to the tesseract CLI backend")
+        endif()
+    endif()
+
+    if(use_ncnn)
+        set(TRANSAI_OCR_BACKEND_ACTIVE "ncnn" PARENT_SCOPE)
+        find_package(Qt6 REQUIRED COMPONENTS Concurrent)
+        target_sources(${target} PRIVATE
+            src/ocr/RapidOcrEngine.cpp
+            src/ocr/OcrPostProcess.cpp
+            src/ocr/OcrModelLocator.cpp)
+        target_compile_definitions(${target} PRIVATE TRANSAI_OCR_BACKEND_NCNN)
+        target_link_libraries(${target} PRIVATE ncnn Qt6::Concurrent)
+
+        if(EXISTS "${TRANSAI_OCR_MODEL_DIR}/ch_PP-OCRv3_det_infer.param"
+           AND EXISTS "${TRANSAI_OCR_MODEL_DIR}/ch_PP-OCRv3_rec_infer.param"
+           AND EXISTS "${TRANSAI_OCR_MODEL_DIR}/ppocr_keys_v1.txt")
+            # In-tree builds (and the tests) find the models straight from the
+            # source tree; packaged builds use the install rule below.
+            target_compile_definitions(${target} PRIVATE
+                TRANSAI_OCR_SOURCE_MODEL_DIR="${TRANSAI_OCR_MODEL_DIR}")
+            install(DIRECTORY "${TRANSAI_OCR_MODEL_DIR}/"
+                DESTINATION "${CMAKE_INSTALL_DATADIR}/TransAI/ocr/models")
+            set(TRANSAI_OCR_MODELS_PRESENT ON PARENT_SCOPE)
+            message(STATUS "OCR backend: bundled RapidOCR + ncnn (models: ${TRANSAI_OCR_MODEL_DIR})")
+        else()
+            message(WARNING
+                "OCR backend: bundled RapidOCR is enabled but the models are missing from "
+                "${TRANSAI_OCR_MODEL_DIR}; run scripts/fetch_ocr_models.sh (OCR will report "
+                "itself unavailable until the models exist)")
+        endif()
+    else()
+        set(TRANSAI_OCR_BACKEND_ACTIVE "tesseract" PARENT_SCOPE)
+        message(STATUS "OCR backend: tesseract CLI")
+        target_sources(${target} PRIVATE src/ocr/TesseractOcrEngine.cpp)
+        target_compile_definitions(${target} PRIVATE TRANSAI_OCR_BACKEND_TESSERACT)
+    endif()
+endfunction()
+
 
 IF (CMAKE_SYSTEM_NAME MATCHES "Linux")
 	MESSAGE(STATUS "current platform: Linux ")
@@ -125,8 +248,9 @@ IF (CMAKE_SYSTEM_NAME MATCHES "Linux")
         target_sources(TransAI PRIVATE src/settings/SecretStoreNull.cpp)
     endif()
 
-    # OCR backend: tesseract CLI (optional at runtime).
-    target_sources(TransAI PRIVATE src/ocr/TesseractOcrEngine.cpp)
+    # OCR backend: bundled RapidOCR/ncnn when it can be built, otherwise the
+    # tesseract CLI.
+    transai_setup_ocr_backend(TransAI)
 ELSEIF (CMAKE_SYSTEM_NAME MATCHES "Windows")
 	MESSAGE(STATUS "current platform: Windows")
 
@@ -139,8 +263,9 @@ ELSEIF (CMAKE_SYSTEM_NAME MATCHES "Windows")
     # DPAPI-backed secret storage (CryptProtectData → crypt32).
     target_sources(TransAI PRIVATE src/settings/SecretStoreWindows.cpp)
     target_link_libraries(TransAI PRIVATE crypt32)
-    # OCR backend: tesseract CLI when the user has it installed.
-    target_sources(TransAI PRIVATE src/ocr/TesseractOcrEngine.cpp)
+    # OCR backend: bundled RapidOCR/ncnn when it can be built, otherwise the
+    # tesseract CLI.
+    transai_setup_ocr_backend(TransAI)
 
     set_target_properties(TransAI PROPERTIES
         WIN32_EXECUTABLE TRUE
@@ -164,8 +289,9 @@ ELSEIF (CMAKE_SYSTEM_NAME MATCHES "Darwin")
 
     # Keychain Services backend for the API key.
     target_sources(TransAI PRIVATE src/settings/SecretStoreMac.mm)
-    # Vision framework OCR backend.
+    # Vision framework OCR backend (macOS always has one, no bundle cost).
     target_sources(TransAI PRIVATE src/ocr/VisionOcrEngine.mm)
+    target_compile_definitions(TransAI PRIVATE TRANSAI_OCR_BACKEND_VISION)
 
     set_target_properties(TransAI PROPERTIES
         MACOSX_BUNDLE TRUE

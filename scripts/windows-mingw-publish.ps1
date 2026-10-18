@@ -20,6 +20,14 @@ function Main() {
     Copy-Item build\* $archiveName\
     # 拷贝依赖
     windeployqt --qmldir . --plugindir $archiveName\plugins --no-translations --compiler-runtime $archiveName\$targetName
+    # Bundled OCR models (see scripts/fetch_ocr_models.sh); the app resolves
+    # them from <exe dir>\ocr\models.
+    if (Test-Path res\ocr\models) {
+        New-Item -ItemType Directory -Force "$archiveName\ocr\models" | Out-Null
+        Copy-Item res\ocr\models\* "$archiveName\ocr\models\"
+    } else {
+        Write-Warning "res/ocr/models missing: run scripts/fetch_ocr_models.sh (OCR mode will be unavailable)"
+    }
     cp $Qt6_DIR\bin\libgcc_s_seh-1.dll $archiveName\
     cp $Qt6_DIR\bin\libstdc++-6.dll $archiveName\
     cp $Qt6_DIR\bin\libwinpthread-1.dll $archiveName\

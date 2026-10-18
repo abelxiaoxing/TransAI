@@ -109,10 +109,13 @@ SectionCard {
     Text {
         width: parent.width
         leftPadding: section.fieldColumnX
-        // OCR needs a backend: tesseract on Linux/Windows; macOS uses the
-        // Vision framework and is always available.
+        // OCR needs a backend: the bundled RapidOCR models on Linux/Windows,
+        // the Vision framework on macOS (always available). The engine reports
+        // the specific reason (missing models, tesseract not installed, ...).
         visible: section.translateMode === "ocr" && !ocrEngine.available
-        text: I18n.t("OCR is not available on this system: install tesseract-ocr or switch to Auto / Vision model.")
+        text: ocrEngine.unavailableReason.length > 0
+              ? I18n.t(ocrEngine.unavailableReason)
+              : I18n.t("OCR is not available on this platform")
         color: section.warningColor
         font.pixelSize: section.fontSizeLabel
         wrapMode: Text.WordWrap
