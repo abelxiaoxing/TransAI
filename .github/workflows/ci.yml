@@ -39,10 +39,13 @@ jobs:
 
       # A syntax error in these would only surface for whoever runs them by
       # hand (install / model fetch), so parse them here: ~1 s.
-      - name: Syntax-check shell scripts
+      - name: Syntax-check shell scripts and release assets
         run: |
           bash -n build_install.sh
           bash -n scripts/fetch_ocr_models.sh
+          # These ship in every artifact; a deleted/emptied text would otherwise
+          # only surface during a release.
+          for f in LICENSES/*.txt; do test -s "$f" || { echo "::error::$f is empty"; exit 1; }; done
 
       # ncnn is built from source through FetchContent on every clean runner
       # ("CPU-only, no Vulkan") and dominates the build time. ccache is
@@ -311,7 +314,9 @@ jobs:
           if (-not (Test-Path pkg-ok.zip)) { throw 'pkg-ok.zip was not produced' }
           Expand-Archive pkg-ok.zip -DestinationPath expanded-ok -Force
           foreach ($rel in @('pkg-ok\TransAI.exe', 'pkg-ok\ocr\models\ch_PP-OCRv3_det_infer.bin',
-                             'pkg-ok\ocr\models\ch_PP-OCRv3_rec_infer.bin', 'pkg-ok\ocr\models\ppocr_keys_v1.txt')) {
+                             'pkg-ok\ocr\models\ch_PP-OCRv3_rec_infer.bin', 'pkg-ok\ocr\models\ppocr_keys_v1.txt',
+                             'pkg-ok\licenses\QHotkey-BSD-3-Clause.txt', 'pkg-ok\licenses\ncnn-BSD-3-Clause.txt',
+                             'pkg-ok\licenses\PP-OCR-Apache-2.0.txt')) {
             if (-not (Test-Path (Join-Path expanded-ok $rel))) { throw "$rel missing from the archive" }
           }
 
@@ -332,4 +337,18 @@ jobs:
             if (Test-Path pkg-broken.zip) { throw 'an archive was produced despite the missing models' }
           } finally {
             Move-Item res\ocr\models.bak res\ocr\models
+          }
+          # Same guard for the license texts: an empty text must also abort.
+          Move-Item LICENSES\ncnn-BSD-3-Clause.txt LICENSES\ncnn-BSD-3-Clause.txt.bak
+          try {
+            $failed = $false
+            try {
+              ./scripts/windows-mingw-publish.ps1 -archiveName pkg-nolicense -targetName TransAI -Qt6_DIR $env:QTSTUB
+            } catch {
+              $failed = $true
+              Write-Host "refused as expected: $($_.Exception.Message)"
+            }
+            if (-not $failed) { throw 'packaging succeeded without the license texts' }
+          } finally {
+            Move-Item LICENSES\ncnn-BSD-3-Clause.txt.bak LICENSES\ncnn-BSD-3-Clause.txt
           }

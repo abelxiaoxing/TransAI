@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(TransAI VERSION 0.1 LANGUAGES CXX)
+project(TransAI VERSION 1.0.0 LANGUAGES CXX)
 
 
 set(CMAKE_AUTOMOC ON) # Meta-Object Compiler
@@ -99,6 +99,9 @@ set(RESOURCES
     TransAI.qrc
 )
 
+# QHotkey is vendored and linked statically: its own install rules (headers plus
+# a CMake package config) would only add noise to the release tarball.
+set(QHOTKEY_INSTALL OFF CACHE BOOL "" FORCE)
 add_subdirectory(lib/)
 
 include(GNUInstallDirs)
@@ -256,7 +259,12 @@ ELSEIF (CMAKE_SYSTEM_NAME MATCHES "Windows")
 
     # set(CMAKE_EXE_LINKER_FLAGS "-static") use target_link_libraries instead
     set(app_icon_resource_windows "${CMAKE_CURRENT_SOURCE_DIR}/res/logo/logo.rc")
+    # VERSIONINFO for the exe (Explorer → properties). Generated because a .rc
+    # file needs literal version numbers.
+    configure_file("${CMAKE_CURRENT_SOURCE_DIR}/res/logo/version.rc.in"
+                   "${CMAKE_CURRENT_BINARY_DIR}/version.rc" @ONLY)
     qt_add_executable(TransAI ${app_icon_resource_windows}
+        "${CMAKE_CURRENT_BINARY_DIR}/version.rc"
         ${SOURCES} ${HEADERS} ${RESOURCES}
     )
 
@@ -351,6 +359,12 @@ ENDIF()
 install(TARGETS TransAI
     BUNDLE DESTINATION .
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
+
+# Third-party license texts next to the models (see LICENSES/README.md and
+# THIRD-PARTY-NOTICES.md). Vendored in-tree so a release cannot ship without
+# them, and so packaging never needs the network.
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/LICENSES/"
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/TransAI/licenses")
 
 # Optional unit tests (pure-logic modules); skipped silently when Qt6::Test
 # is not installed. Run with: ctest --test-dir build
