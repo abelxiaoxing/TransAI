@@ -127,7 +127,15 @@ scripts/                            # Windows build/publish scripts
   throw and `build_install.sh` exits when `res/ocr/models` is incomplete (run
   `scripts/fetch_ocr_models.sh` first; `TRANSAI_SKIP_OCR_MODELS=1` opts out on
   purpose). Shipping an OCR-less artifact silently is the failure mode this
-  guards against
+  guards against. The file list and the check live in `scripts/ocr-models.ps1`
+  (`Assert-OcrModelsPresent` / `Copy-OcrModelsTo`), dot-sourced by both publish
+  scripts, and are covered by the `packaging-dryrun` CI job
+  (`workflow_dispatch` only: stubbed build output, Qt runtime and windeployqt,
+  so it tests the guard rather than Qt deployment). A dispatch runs that job
+  alone — the four build jobs are gated to push/PR
+- Shell-script syntax (`build_install.sh`, `scripts/fetch_ocr_models.sh`) is
+  parsed by the linux CI job (`bash -n`), because a typo there only bites the
+  person running an install by hand
 - Location: `QStandardPaths::AppConfigLocation` (`~/.config/TransAI/config.json` on Linux)
 - Format: JSON with `configVersion`; per-provider keys (`openaiApiServer/openaiApiKey/openaiModel`, `ollamaApiServer/ollamaModel`) plus active `provider`, `shortCut`, `displayLanguage` (`en` / `zh-CN`; absent/empty falls back to the system UI language), the main-view preference (`targetLanguage` — empty = not set), screenshot-translation keys (`screenshotShortCut`, `screenshotTranslateMode` = `auto`|`vision`|`ocr`, `screenshotVisionModel` (empty = follow current model), `screenshotMaxImageWidth` = 1600, `screenshotJpegQuality` = 85), and window geometry (`windowWidth/windowHeight`; 0 = not set; clamped to bounds shared with QML through `Setting`'s CONSTANT geometry properties). Migrations: `configVersion < 2` configs have their legacy top-level `apiKey/apiServer/model` lifted into the per-provider keys by `migrateLegacyConfig()` (older keys are left on disk for downgrades), a newer `configVersion` only logs a warning, and the removed `thinkingMode` / `historyEnabled` / `clearHistoryOnExit` keys are dropped on the next save (history is always recorded now and never wiped on quit)
 - API key secure storage: when an OS keychain backend is available (`SecretStore` — libsecret on Linux when compiled with it, Keychain on macOS, DPAPI on Windows), `openaiApiKey` lives there instead of the file; the config then carries an empty `openaiApiKey` plus the marker `openaiApiKeyInSecretStore: true`. The key is trimmed, migrated from plaintext one-way and verified by read-back; any backend failure keeps the legacy plaintext behavior (the file is chmod 600 on Unix). The keychain is only touched when the key actually changed (`m_lastStoredApiKey`), because `updateConfig()` runs on every settings edit; `Setting.apiKeyStoredSecurely` surfaces the current state in the settings card
