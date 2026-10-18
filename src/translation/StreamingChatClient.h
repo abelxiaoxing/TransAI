@@ -80,9 +80,11 @@ private:
     void cancelCurrentRequest();
     void handleStreamData(QNetworkReply* reply);
     void setResponseData(const QString& responseData);
+    // In-place append: avoids copying the whole accumulated response for every
+    // streamed chunk (setResponseData() stays the reset path).
+    void appendResponseData(const QString& chunk);
     void setResponseError(const QString& responseError);
     void setIsRequesting(bool isRequesting);
-    static QString networkErrorMessage(QNetworkReply::NetworkError error);
 
     QNetworkAccessManager* m_networkManager;
     QNetworkReply* m_reply = nullptr;

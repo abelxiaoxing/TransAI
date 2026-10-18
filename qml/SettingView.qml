@@ -9,8 +9,9 @@ import "settings"
 // the cross-card orchestration: provider switching, config load/save,
 // auto model detection and the debounced-save machinery.
 //
-// Public API (used by main.qml): reload(), flushPendingSave(), hotkeyError
-// (alias), shortcutRegistrar, screenshotShortcutRegistrar, hotkeysSupported.
+// Public API (used by main.qml): reload(), flushPendingSave(), hotkeyError /
+// screenshotHotkeyError (aliases for the per-card registration errors),
+// shortcutRegistrar, hotkeysSupported.
 Item {
     id: root
     signal backClicked
@@ -23,10 +24,9 @@ Item {
     // main.qml writes here when a hotkey registration fails outside a
     // recording session; the Hotkey card displays it inline.
     property alias hotkeyError: hotkeySection.hotkeyError
+    // Same contract for the screenshot hotkey (action id "translateScreenshot").
+    property alias screenshotHotkeyError: screenshotSection.hotkeyError
     property QtObject shortcutRegistrar: null
-    // Same contract as shortcutRegistrar, but for the screenshot action
-    // (main.qml wires it to the "translateScreenshot" action id).
-    property QtObject screenshotShortcutRegistrar: null
     // Bound from main.qml (GlobalShortcutManager.hotkeysSupported). False on
     // Wayland/headless, where the recorder is replaced by an explanation.
     property bool hotkeysSupported: true
@@ -231,6 +231,8 @@ Item {
                 RoundIconButton {
                     id: backButton
                     anchors.left: parent.left
+                    // 让位给窗口级置顶按钮（main.qml 的左上角 chrome）
+                    anchors.leftMargin: 34
                     anchors.verticalCenter: parent.verticalCenter
                     width: 38
                     height: 38
@@ -339,7 +341,7 @@ Item {
                 detector: modelSection.detector
                 currentModel: root.selectedModel
                 hotkeysSupported: root.hotkeysSupported
-                screenshotShortcutRegistrar: root.screenshotShortcutRegistrar
+                shortcutRegistrar: root.shortcutRegistrar
                 onEdited: saveConfigSoon()
                 onSaveRequested: saveConfig()
             }

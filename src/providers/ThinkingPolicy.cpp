@@ -3,6 +3,8 @@
 #include <QRegularExpression>
 #include <QUrl>
 
+#include "providers/ProviderDefaults.h"
+
 namespace {
 
 bool containsAny(const QString& value, const QStringList& needles)
@@ -77,7 +79,7 @@ ThinkingPolicy ThinkingPolicyBuilder::build(const QString& provider, const QStri
     // 1) Ollama: `think: false` disables thinking on supported models
     //    (Qwen3/3.5+, DeepSeek-R1, GPT-OSS, GLM, Gemma3, ...) and is ignored
     //    by models without thinking support.
-    if (normalizedProvider == QLatin1String("ollama")) {
+    if (ProviderDefaults::isOllamaProvider(normalizedProvider)) {
         policy.bodyParams.insert("think", false);
         return policy;
     }

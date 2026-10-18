@@ -1,0 +1,41 @@
+# Baseline formatting for TransAI (Qt/C++ style).
+#
+# Deliberately NOT applied as a mass reformat: the existing sources were never
+# machine-formatted, and a whole-tree reformat would bury real changes in
+# noise. New and edited code is expected to match this file; CI does not gate on
+# it (see docs/phase-5-quality-hardening.md, Q-24).
+BasedOnStyle: LLVM
+Language: Cpp
+
+Standard: c++17
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 120
+
+BreakBeforeBraces: Attach
+AccessModifierOffset: -4
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: true
+AlwaysBreakTemplateDeclarations: Yes
+PointerAlignment: Left
+ReferenceAlignment: Left
+SpaceAfterCStyleCast: false
+SpaceBeforeParens: ControlStatements
+SpacesBeforeTrailingComments: 2
+SortIncludes: CaseSensitive
+IncludeBlocks: Preserve
+AlignAfterOpenBracket: Align
+IndentCaseLabels: false
+ConstructorInitializerIndentWidth: 4
+BreakConstructorInitializers: BeforeComma
+
+# QML/JS side: 4 spaces, no tabs (matches the existing QML sources).
+---
+Language: JavaScript
+BasedOnStyle: LLVM
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 120

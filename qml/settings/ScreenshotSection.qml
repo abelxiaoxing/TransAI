@@ -34,10 +34,16 @@ SectionCard {
     // Detected models from the Model card (combo entries).
     property var detector: null
     property bool hotkeysSupported: true
-    property QtObject screenshotShortcutRegistrar: null
+    property QtObject shortcutRegistrar: null
     property bool advancedExpanded: false
 
     property alias shortcut: recorder.shortcut
+    // Action id this recorder binds (GlobalShortcutManager slot + conflict
+    // arbitration key). Same contract as the Global Hotkey card.
+    readonly property string actionId: "translateScreenshot"
+    // Last registration failure, aliased to the recorder so main.qml can write
+    // startup failures straight into the inline error line below.
+    property alias hotkeyError: recorder.errorText
 
     // Debounced-save-worthy edits (hotkey, advanced number fields).
     signal edited()
@@ -195,7 +201,8 @@ SectionCard {
         ShortcutRecorder {
             id: recorder
             width: parent.width
-            registrar: section.screenshotShortcutRegistrar
+            actionId: section.actionId
+            registrar: section.shortcutRegistrar
             hotkeysSupported: section.hotkeysSupported
             onEdited: section.edited()
         }
@@ -203,8 +210,9 @@ SectionCard {
 
     Text {
         width: parent.width
-        visible: recorder.errorText.length > 0
-        text: recorder.errorText
+        visible: section.hotkeyError.length > 0
+        // Fixed English reasons from C++ translate through the I18n table.
+        text: I18n.t(section.hotkeyError)
         color: section.errorColor
         font.pixelSize: section.fontSizeLabel
         wrapMode: Text.WordWrap

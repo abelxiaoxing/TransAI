@@ -32,7 +32,7 @@ Rectangle {
         radius: parent.radius - 1
         color: "transparent"
         border.width: 1
-        border.color: Qt.rgba(1, 1, 1, 0.04)
+        border.color: ThemeColors.hairline
     }
 
     default property alias contentData: bodyColumn.data

@@ -43,18 +43,40 @@ const char kScreenshotVisionModelKey[] = "screenshotVisionModel";
 const char kScreenshotMaxImageWidthKey[] = "screenshotMaxImageWidth";
 const char kScreenshotJpegQualityKey[] = "screenshotJpegQuality";
 const char kTargetLanguageKey[] = "targetLanguage";
-const char kTranslationModeKey[] = "translationMode";
 const char kWindowWidthKey[] = "windowWidth";
 const char kWindowHeightKey[] = "windowHeight";
 const char kConfigVersionKey[] = "configVersion";
 constexpr int kConfigVersion = 2;
 constexpr int kDefaultMaxImageWidth = 1600;
 constexpr int kDefaultJpegQuality = 85;
-// Window-geometry bounds, aligned with main.qml's minimumWidth/Height.
-constexpr int kMinWindowWidth = 400;
-constexpr int kMaxWindowWidth = 3840;
-constexpr int kMinWindowHeight = 500;
-constexpr int kMaxWindowHeight = 2160;
+
+// Lifts the pre-per-provider (version < 2) top-level keys into the per-provider
+// keys used from version 2 on. Runtime migration happens on every load, so a
+// config written by an older binary keeps working; the legacy keys are left in
+// place (never rewritten) so a downgrade still sees its own last state.
+QJsonObject migrateLegacyConfig(QJsonObject obj, int storedVersion)
+{
+    if (storedVersion >= kConfigVersion) {
+        return obj;
+    }
+    // Legacy values only ever belonged to the OpenAI-compatible provider.
+    if (ProviderDefaults::isOllamaProvider(obj.value(kProviderKey).toString())) {
+        return obj;
+    }
+    const auto lift = [&obj](const char* legacyKey, const char* targetKey) {
+        if (obj.contains(targetKey)) {
+            return;
+        }
+        const QJsonValue legacy = obj.value(QLatin1String(legacyKey));
+        if (legacy.isString()) {
+            obj.insert(QLatin1String(targetKey), legacy);
+        }
+    };
+    lift(kApiServerKey, kOpenAIApiServerKey);
+    lift(kApiKeyKey, kOpenAIApiKeyKey);
+    lift(kModelKey, kOpenAIModelKey);
+    return obj;
+}
 
 QStringList existingConfigCandidates()
 {
@@ -118,15 +140,13 @@ Setting::Setting(QObject* parent, std::unique_ptr<SecretStore> secretStore)
     _openaiApiServer = ProviderDefaults::openAiApiServer();
     _openaiModel = ProviderDefaults::openAiDefaultModel();
     _ollamaApiServer = ProviderDefaults::ollamaApiServer();
-    _provider = "openai";
+    _provider = ProviderDefaults::ProviderIds::openAi();
     // Screenshot-translation defaults: vision-first, follow current model.
     _screenshotTranslateMode = "auto";
     _screenshotMaxImageWidth = kDefaultMaxImageWidth;
     _screenshotJpegQuality = kDefaultJpegQuality;
-    // Main-view preferences: follow the QML defaults (first language entry,
-    // Translate mode). QString members default to empty; the int member of
-    // Q_PROPERTY_AUTO is uninitialized unless spelled out here.
-    _translationMode = 0;
+    // Main-view preference: empty targetLanguage = "not set" (QML falls back
+    // to the first entry of its language list).
     // Window geometry: 0 = not set (QML falls back to its default geometry).
     _windowWidth = 0;
     _windowHeight = 0;
@@ -199,29 +219,26 @@ bool Setting::loadConfig()
         return false;
     }
 
-    const QJsonObject obj = doc.object();
-    const QString legacyApiServer = obj.value(kApiServerKey).toString();
-    const QString legacyApiKey = obj.value(kApiKeyKey).toString();
-    const QString legacyModel = obj.value(kModelKey).toString();
+    const QJsonObject rawObject = doc.object();
+    const int storedVersion = rawObject.value(kConfigVersionKey).toInt(0);
+    if (storedVersion > kConfigVersion) {
+        qWarning() << "config.json was written by a newer TransAI (configVersion" << storedVersion
+                   << "> " << kConfigVersion << "); unknown keys are ignored";
+    }
+    const QJsonObject obj = migrateLegacyConfig(rawObject, storedVersion);
 
-    _provider = ProviderDefaults::normalizedProviderName(obj.value(kProviderKey).toString("openai"));
+    _provider = ProviderDefaults::normalizedProviderName(obj.value(kProviderKey).toString(ProviderDefaults::ProviderIds::openAi()));
 
     // "Key present but empty" is preserved as empty (the derived active view
-    // falls back to the default); "key absent" migrates from the legacy
-    // top-level keys or falls back to the default.
+    // falls back to the default); "key absent" falls back to the default.
+    // Legacy top-level keys were already lifted into these per-provider keys
+    // by migrateLegacyConfig().
     const QString storedOpenAiServer = obj.value(kOpenAIApiServerKey).toString();
-    if (storedOpenAiServer.trimmed().isEmpty() && !obj.contains(kOpenAIApiServerKey)) {
-        _openaiApiServer = _provider == "openai" && !legacyApiServer.trimmed().isEmpty()
-            ? legacyApiServer.trimmed()
-            : ProviderDefaults::openAiApiServer();
-    } else {
-        _openaiApiServer = storedOpenAiServer;
-    }
+    _openaiApiServer = (storedOpenAiServer.trimmed().isEmpty() && !obj.contains(kOpenAIApiServerKey))
+        ? ProviderDefaults::openAiApiServer()
+        : storedOpenAiServer;
 
-    _openaiApiKey = obj.value(kOpenAIApiKeyKey).toString();
-    if (_openaiApiKey.trimmed().isEmpty() && !obj.contains(kOpenAIApiKeyKey)) {
-        _openaiApiKey = legacyApiKey;
-    }
+    _openaiApiKey = obj.value(kOpenAIApiKeyKey).toString().trimmed();
 
     // Secret store (OS keychain) integration: the store wins over config
     // plaintext; a plaintext-only key is migrated into the store once —
@@ -233,21 +250,22 @@ bool Setting::loadConfig()
         const QString storedKey = m_secretStore->read(storeId);
         if (!storedKey.isEmpty()) {
             _openaiApiKey = storedKey;
+            m_lastStoredApiKey = storedKey;
         } else if (!_openaiApiKey.trimmed().isEmpty()) {
             if (m_secretStore->write(storeId, _openaiApiKey)
                 && m_secretStore->read(storeId) == _openaiApiKey) {
                 m_apiKeyMigratedToStore = true;
+                m_lastStoredApiKey = _openaiApiKey;
             } else {
                 qWarning() << "API key migration to the secret store failed; keeping config.json plaintext";
             }
         }
     }
+    setApiKeyStoredSecurely(!m_lastStoredApiKey.isEmpty());
 
     _openaiModel = obj.value(kOpenAIModelKey).toString();
     if (_openaiModel.trimmed().isEmpty() && !obj.contains(kOpenAIModelKey)) {
-        _openaiModel = _provider == "openai" && !legacyModel.trimmed().isEmpty()
-            ? legacyModel.trimmed()
-            : ProviderDefaults::openAiDefaultModel();
+        _openaiModel = ProviderDefaults::openAiDefaultModel();
     }
 
     _ollamaApiServer = obj.value(kOllamaApiServerKey).toString();
@@ -274,13 +292,8 @@ bool Setting::loadConfig()
         _screenshotJpegQuality = kDefaultJpegQuality;
     }
 
-    // Main-view preferences (absent = defaults). translationMode mirrors the
-    // TranslationMode enum (0..2); out-of-range values fall back to 0.
+    // Main-view preference (absent = not set).
     _targetLanguage = obj.value(kTargetLanguageKey).toString();
-    _translationMode = obj.value(kTranslationModeKey).toInt(0);
-    if (_translationMode < 0 || _translationMode > 2) {
-        _translationMode = 0;
-    }
 
     // Window geometry (absent/invalid = 0, QML falls back to its defaults).
     const int windowWidth = obj.value(kWindowWidthKey).toInt(0);
@@ -295,6 +308,15 @@ bool Setting::loadConfig()
     }
 
     return true;
+}
+
+void Setting::setApiKeyStoredSecurely(bool storedSecurely)
+{
+    if (m_apiKeyStoredSecurely == storedSecurely) {
+        return;
+    }
+    m_apiKeyStoredSecurely = storedSecurely;
+    emit apiKeyStoredSecurelyChanged();
 }
 
 void Setting::applyProviderConfig(QString provider)
@@ -316,22 +338,35 @@ void Setting::updateConfig()
     // API key persistence: prefer the secret store (OS keychain); the
     // plaintext copy is dropped only after a write verified by read-back.
     // On any failure the key stays in config.json exactly as before.
-    QString apiKeyForConfig = _openaiApiKey;
+    //
+    // The keychain round-trip is skipped when the key is unchanged: this method
+    // runs on every settings edit (typing, mode/language switches, geometry
+    // debounce), and some backends make each write expensive or interactive.
+    const QString trimmedKey = _openaiApiKey.trimmed();
+    QString apiKeyForConfig = trimmedKey;
     bool keyInStore = false;
     if (m_secretStore && m_secretStore->isAvailable()) {
         const QString storeId = QString::fromLatin1(kSecretOpenAiApiKeyId);
-        if (_openaiApiKey.isEmpty()) {
-            keyInStore = m_secretStore->remove(storeId);
-        } else if (m_secretStore->write(storeId, _openaiApiKey)
-                   && m_secretStore->read(storeId) == _openaiApiKey) {
-            keyInStore = true;
+        if (m_lastStoredApiKey != trimmedKey) {
+            bool stored = false;
+            if (trimmedKey.isEmpty()) {
+                stored = m_secretStore->remove(storeId);
+            } else {
+                stored = m_secretStore->write(storeId, trimmedKey)
+                    && m_secretStore->read(storeId) == trimmedKey;
+            }
+            if (stored) {
+                m_lastStoredApiKey = trimmedKey;
+            } else {
+                qWarning() << "Secret store write failed; API key stays in config.json";
+            }
         }
+        keyInStore = !trimmedKey.isEmpty() && m_lastStoredApiKey == trimmedKey;
         if (keyInStore) {
             apiKeyForConfig.clear();
-        } else {
-            qWarning() << "Secret store write failed; API key stays in config.json";
         }
     }
+    setApiKeyStoredSecurely(keyInStore);
 
     QJsonObject obj{
         {kConfigVersionKey, kConfigVersion},
@@ -350,7 +385,6 @@ void Setting::updateConfig()
         {kScreenshotMaxImageWidthKey, _screenshotMaxImageWidth},
         {kScreenshotJpegQualityKey, _screenshotJpegQuality},
         {kTargetLanguageKey, _targetLanguage},
-        {kTranslationModeKey, _translationMode},
         {kWindowWidthKey, _windowWidth},
         {kWindowHeightKey, _windowHeight},
     };

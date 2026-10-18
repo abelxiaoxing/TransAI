@@ -17,10 +17,12 @@ SectionCard {
     readonly property int fontSizeLabel: 13
 
     property alias shortcut: recorder.shortcut
-    // Last hotkey-registration failure, shown inline. main.qml also writes
-    // here (through SettingView's alias) when registration fails outside a
-    // recording session.
-    property string hotkeyError: ""
+    // Action id this recorder binds; GlobalShortcutManager uses it as the
+    // slot for both registration and conflict arbitration.
+    readonly property string actionId: "translateSelection"
+    // Last hotkey-registration failure, shown inline. Aliased to the recorder
+    // so main.qml can write startup failures straight into its display.
+    property alias hotkeyError: recorder.errorText
     property bool hotkeysSupported: true
     property QtObject shortcutRegistrar: null
 
@@ -35,7 +37,7 @@ SectionCard {
     // recording session may have left the registration cleared).
     function reapplyShortcut() {
         if (shortcut.length > 0 && shortcutRegistrar !== null) {
-            shortcutRegistrar.setShortcut(shortcut)
+            shortcutRegistrar.setShortcut(actionId, shortcut)
         }
     }
 
@@ -104,16 +106,18 @@ SectionCard {
     ShortcutRecorder {
         id: recorder
         width: parent.width
+        actionId: section.actionId
         registrar: section.shortcutRegistrar
         hotkeysSupported: section.hotkeysSupported
         onEdited: section.edited()
-        onErrorTextChanged: section.hotkeyError = errorText
     }
 
     Text {
         width: parent.width
         visible: section.hotkeysSupported && section.hotkeyError.length > 0
-        text: section.hotkeyError
+        // Fixed English reasons from C++ translate through the I18n table;
+        // dynamic ones fall through unchanged.
+        text: I18n.t(section.hotkeyError)
         color: section.errorColor
         font.pixelSize: section.fontSizeLabel
         wrapMode: Text.WordWrap

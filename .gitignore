@@ -1,2 +1,5 @@
 build/
 .claude/
+build-asan/
+build-release/
+res/ocr/models/

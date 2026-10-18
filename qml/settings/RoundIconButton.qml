@@ -20,7 +20,8 @@ Button {
 
     background: Rectangle {
         radius: control.width / 2
-        color: control.down ? "#0C1219" : (control.hovered ? "#182838" : Qt.rgba(0.07, 0.11, 0.16, 0.76))
+        color: control.down ? ThemeColors.controlDown
+             : (control.hovered ? ThemeColors.controlHover : ThemeColors.controlIdle)
         border.width: 1
         border.color: control.hovered ? control.borderActive : control.border
         Behavior on color { ColorAnimation { duration: 160 } }

@@ -325,14 +325,14 @@ SectionCard {
             color: detectArea.containsMouse && !modelDetector.isDetecting ? section.accentHover : section.accent
             opacity: modelDetector.isDetecting ? 0.65 : 1.0
             border.width: 1
-            border.color: Qt.rgba(1, 1, 1, 0.18)
+            border.color: ThemeColors.popupBorder
 
             Text {
                 anchors.centerIn: parent
                 text: modelDetector.isDetecting ? I18n.t("Scanning")
                       : modelDetector.availableModels.length > 0 ? I18n.t("Refresh")
                       : I18n.t("Detect")
-                color: "#061014"
+                color: ThemeColors.popupSelectedText
                 font.pixelSize: section.fontSizeSmall
                 font.weight: Font.DemiBold
             }

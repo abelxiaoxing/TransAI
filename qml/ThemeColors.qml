@@ -34,6 +34,28 @@ QtObject {
     // Borders
     readonly property color border: "#243445"
     readonly property color borderActive: "#65F4D6"
+    // Idle border of the main-view input panel (bluish, slightly transparent).
+    readonly property color borderIdle: Qt.rgba(0.24, 0.4, 0.57, 0.35)
+    // Decorative 1px separator / inner card outline.
+    readonly property color hairline: Qt.rgba(1, 1, 1, 0.04)
+
+    // Text/icons placed on top of an accent-colored surface (buttons, selected
+    // segments).
+    readonly property color accentForeground: "#0F1721"
+    readonly property color accentForegroundDisabled: "#A3B0C0"
+
+    // Small chips (settings status pills).
+    readonly property color chipBg: Qt.rgba(1, 1, 1, 0.055)
+    readonly property color chipBorder: Qt.rgba(1, 1, 1, 0.08)
+
+    // Round control button states (settings back button).
+    readonly property color controlDown: "#0C1219"
+    readonly property color controlHover: "#182838"
+    readonly property color controlIdle: Qt.rgba(0.07, 0.11, 0.16, 0.76)
+
+    // Popup/dropdown chrome.
+    readonly property color popupBorder: Qt.rgba(1, 1, 1, 0.18)
+    readonly property color popupSelectedText: "#061014"
 
     // Semantic
     readonly property color error: "#F48771"

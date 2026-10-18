@@ -17,7 +17,7 @@ public:
 
     // Explicit-parameter request API: arity/type mistakes surface at the
     // call site instead of silently missing QVariantMap keys.
-    Q_INVOKABLE void translate(const QString& text, const QString& targetLanguage, int mode,
+    Q_INVOKABLE void translate(const QString& text, const QString& targetLanguage,
                                const QString& provider, const QString& apiServer,
                                const QString& apiKey, const QString& model);
 

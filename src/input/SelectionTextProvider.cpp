@@ -9,6 +9,13 @@
 
 #include "input/ClipboardGuard.h"
 
+namespace {
+// Ceiling for the simulated copy: the clipboard is usually updated within a
+// few tens of milliseconds (QClipboard::dataChanged), this only bounds the wait
+// for applications that copy asynchronously.
+constexpr int kSimulatedCopyTimeoutMs = 300;
+} // namespace
+
 #ifdef Q_OS_MACOS
 #include <ApplicationServices/ApplicationServices.h>
 #endif
@@ -105,43 +112,83 @@ void SelectionTextProvider::requestWaylandSelectedText()
 
 void SelectionTextProvider::requestSelectedTextBySimulatedCopy()
 {
-    ClipboardGuard* guard = new ClipboardGuard(this);
+    abortPendingCopy();
+
     QClipboard* clipboard = QGuiApplication::clipboard();
     if (!clipboard) {
-        guard->deleteLater();
         emit selectedTextFailed("Clipboard is unavailable");
         return;
     }
 
-    const QString marker = QString("__TRANS_AI_SELECTION_MARKER_%1__")
+    // Snapshot the clipboard BEFORE planting the marker so restore() brings the
+    // user's original content back.
+    m_clipboardGuard = new ClipboardGuard(this);
+    m_copyMarker = QString("__TRANS_AI_SELECTION_MARKER_%1__")
         .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
-    clipboard->setText(marker);
 
+    // Event-driven completion: react to the clipboard actually changing instead
+    // of always paying a fixed delay (a slow app used to be missed entirely).
+    m_clipboardConnection = connect(clipboard, &QClipboard::dataChanged, this,
+        [this, clipboard]() {
+            if (clipboard->text() != m_copyMarker) {
+                completeSimulatedCopy();
+            }
+        });
+    m_clipboardWaitTimer = new QTimer(this);
+    m_clipboardWaitTimer->setSingleShot(true);
+    connect(m_clipboardWaitTimer, &QTimer::timeout, this,
+            &SelectionTextProvider::completeSimulatedCopy);
+
+    clipboard->setText(m_copyMarker);
     if (!simulateCopy()) {
-        guard->restore();
-        guard->deleteLater();
+        // The guard restores the snapshot taken above; nothing was copied.
+        abortPendingCopy();
         emit selectedTextFailed("Failed to simulate copy");
         return;
     }
+    m_clipboardWaitTimer->start(kSimulatedCopyTimeoutMs);
+}
 
-    // guard is parented to this, and this is also the singleShot context
-    // object, so guard always outlives the callback; no lifetime guard needed.
-    QTimer::singleShot(300, this, [this, guard, marker]() {
-        const QString copiedText = guard->currentText();
-        const bool clipboardChanged = copiedText != marker;
-        guard->restore();
-        guard->deleteLater();
+void SelectionTextProvider::completeSimulatedCopy()
+{
+    if (!m_clipboardGuard) {
+        return; // already completed (dataChanged and the timer may race)
+    }
 
-        if (!clipboardChanged) {
-            emit selectedTextFailed("Clipboard did not change after copy");
-            return;
-        }
-        if (copiedText.isEmpty()) {
-            emit selectedTextFailed("No selected text found");
-            return;
-        }
-        emit selectedTextReady(copiedText);
-    });
+    QClipboard* clipboard = QGuiApplication::clipboard();
+    const QString copiedText = clipboard ? clipboard->text() : QString();
+    const bool clipboardChanged = clipboard && copiedText != m_copyMarker;
+    abortPendingCopy();
+
+    if (!clipboardChanged) {
+        emit selectedTextFailed("Clipboard did not change after copy");
+        return;
+    }
+    if (copiedText.isEmpty()) {
+        emit selectedTextFailed("No selected text found");
+        return;
+    }
+    emit selectedTextReady(copiedText);
+}
+
+void SelectionTextProvider::abortPendingCopy()
+{
+    if (m_clipboardConnection) {
+        disconnect(m_clipboardConnection);
+        m_clipboardConnection = QMetaObject::Connection();
+    }
+    if (m_clipboardWaitTimer) {
+        m_clipboardWaitTimer->stop();
+        m_clipboardWaitTimer->deleteLater();
+        m_clipboardWaitTimer = nullptr;
+    }
+    if (m_clipboardGuard) {
+        // Best-effort: put the user's original clipboard content back.
+        m_clipboardGuard->restore();
+        m_clipboardGuard->deleteLater();
+        m_clipboardGuard = nullptr;
+    }
+    m_copyMarker.clear();
 }
 
 bool SelectionTextProvider::emitQtPrimarySelection()
