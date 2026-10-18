@@ -68,9 +68,6 @@ void TestApplicationCommandServer::forwardsCommandToRunningInstance() {
 }
 
 void TestApplicationCommandServer::staleSocketArtifactIsReclaimed() {
-#ifdef Q_OS_WIN
-    QEXPECT_FAIL("", "QLocalServer forwarding is not verified on Windows yet", Abort);
-#endif
     QVERIFY(!QFile::exists(socketPath()));
 
     // A crashed instance leaves the socket file behind; the bytes are
@@ -85,6 +82,12 @@ void TestApplicationCommandServer::staleSocketArtifactIsReclaimed() {
     QVERIFY2(server.start(), qPrintable(server.errorString()));
 
     QSignalSpy receivedSpy(&server, &ApplicationCommandServer::commandReceived);
+#ifdef Q_OS_WIN
+    // Same Windows gap as above; the expectation must sit directly in front of
+    // the statement that fails, otherwise QtTest reports it as an unexpected
+    // pass.
+    QEXPECT_FAIL("", "QLocalServer forwarding is not verified on Windows yet", Abort);
+#endif
     QVERIFY(ApplicationCommandServer::sendCommandToRunningInstance(QStringLiteral("show")));
     QTRY_COMPARE(receivedSpy.count(), 1);
 }
