@@ -33,13 +33,19 @@ function Main() {
     # 删除不必要的文件
     $excludeList = @("*.qmlc", "*.ilk", "*.exp", "*.lib", "*.pdb")
     Remove-Item -Path $archiveName -Include $excludeList -Recurse -Force
-    # 内置 OCR 模型（见 scripts/fetch_ocr_models.sh），程序从 <exe目录>\ocr\models 读取
-    if (Test-Path res\ocr\models) {
-        New-Item -ItemType Directory -Force "$archiveName\ocr\models" | Out-Null
-        Copy-Item res\ocr\models\* "$archiveName\ocr\models\"
-    } else {
-        Write-Warning "res/ocr/models missing: run scripts/fetch_ocr_models.sh (OCR mode will be unavailable)"
+    # 内置 OCR 模型（见 scripts/fetch_ocr_models.sh）。缺失就中止打包：
+    # 打出一个 OCR 永远不可用的包比打不出包更难排查。
+    $ocrModels = @(
+        'ch_PP-OCRv3_det_infer.param', 'ch_PP-OCRv3_det_infer.bin',
+        'ch_PP-OCRv3_rec_infer.param', 'ch_PP-OCRv3_rec_infer.bin',
+        'ppocr_keys_v1.txt'
+    )
+    $missing = $ocrModels | Where-Object { -not (Test-Path (Join-Path 'res\ocr\models' $_)) }
+    if ($missing) {
+        throw ("res/ocr/models is incomplete (missing: {0}). Run ./scripts/fetch_ocr_models.sh before packaging." -f ($missing -join ', '))
     }
+    New-Item -ItemType Directory -Force "$archiveName\ocr\models" | Out-Null
+    Copy-Item res\ocr\models\* "$archiveName\ocr\models\"
     # 拷贝vcRedist dll
     $redistDll="{0}{1}\*.CRT\*.dll" -f $env:vcToolsRedistDir.Trim(),$env:msvcArch
     Copy-Item $redistDll $archiveName\

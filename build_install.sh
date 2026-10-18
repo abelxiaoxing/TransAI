@@ -105,11 +105,18 @@ echo "   安装前缀: $INSTALL_PREFIX"
 echo "   程序路径: $APP_PATH"
 echo "============================================="
 
-# 0. 内置 OCR 模型（~13MB，不打进 git；缺失时 OCR 模式只会自报不可用）
-if [ ! -f "res/ocr/models/ch_PP-OCRv3_det_infer.param" ]; then
-    echo "[0/4] 未找到内置 OCR 模型，尝试下载..."
+# 0. 内置 OCR 模型（~13MB，不打进 git）
+#    缺失就中止安装：装出一份 OCR 永远不可用的程序比装不上更难排查。
+#    真的想跳过（例如离线环境只装非 OCR 功能），显式设置
+#    TRANSAI_SKIP_OCR_MODELS=1。
+if [ "${TRANSAI_SKIP_OCR_MODELS:-0}" = "1" ]; then
+    echo "[0/4] 已按 TRANSAI_SKIP_OCR_MODELS=1 跳过内置 OCR 模型"
+elif [ ! -f "res/ocr/models/ch_PP-OCRv3_det_infer.param" ]; then
+    echo "[0/4] 未找到内置 OCR 模型，正在下载..."
     if ! ./scripts/fetch_ocr_models.sh; then
-        echo "[警告] OCR 模型下载失败：安装后“OCR”模式会提示模型缺失（其余功能不受影响）。"
+        echo "错误: 内置 OCR 模型下载失败。请检查网络后重试，或设置" >&2
+        echo "      TRANSAI_SKIP_OCR_MODELS=1 安装不含 OCR 的版本。" >&2
+        exit 1
     fi
 else
     echo "[0/4] 已找到内置 OCR 模型"
