@@ -206,6 +206,13 @@ scripts/                            # Windows build/publish scripts
 5. Real keychain backends (libsecret / Keychain / DPAPI) — untestable in CI:
    no desktop keyring daemon on the runners
 
+## Third-party Components
+
+- `THIRD-PARTY-NOTICES.md` (repository root) lists every bundled/linked
+  third-party component with its license (Qt LGPL, QHotkey MIT, ncnn BSD-3,
+  PP-OCR models Apache-2.0) and what a release artifact must ship. Update it
+  whenever a dependency is added or its pin changes.
+
 ## Documentation References
 
 - `docs/phase-1-architecture-refactor.md` - Module split blueprint (implemented)

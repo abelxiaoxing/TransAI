@@ -30,7 +30,7 @@ Phase 6 的目标：**自带模型、进程内推理、体积可控**，同时�
 | macOS Vision framework | 0 | 好 | macOS 继续使用（不编译 ncnn） |
 
 模型来源：RapidOcrNcnn 1.2.0 release 归档（Apache-2.0）里的 PP-OCRv3 mobile
-det/rec，ncnn 格式：
+det/rec，ncnn 格式（第三方许可归属见根目录 `THIRD-PARTY-NOTICES.md`）：
 
 | 文件 | 大小 |
 |---|---|
