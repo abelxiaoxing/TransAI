@@ -13,6 +13,7 @@ class ApplicationCommandServer : public QObject
 
 public:
     explicit ApplicationCommandServer(QObject* parent = nullptr);
+    ~ApplicationCommandServer() override;
 
     // Forwards `command` to an already running instance. Returns false when
     // nobody accepted it (no live instance, pipe/socket refused the write, or
@@ -28,9 +29,8 @@ public:
 signals:
     void commandReceived(QString command);
 
-public:
-    static QString serverName(); // TODO(diag): private again
 private:
+    static QString serverName();
     // True when something is already listening on `name` (used to refuse to
     // steal a live instance's socket, and to detect stale leftovers).
     static bool hasLiveInstance(const QString& name);
