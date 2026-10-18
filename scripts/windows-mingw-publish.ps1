@@ -9,6 +9,7 @@ param (
 # archiveName: 5.15.2-win64_mingw81
 
 . "$PSScriptRoot/ocr-models.ps1"
+. "$PSScriptRoot/release-assets.ps1"
 
 $scriptDir = $PSScriptRoot
 $currentDir = Get-Location
@@ -25,6 +26,9 @@ function Main() {
     # 内置 OCR 模型（见 scripts/fetch_ocr_models.sh）。缺失就中止打包：
     # 打出一个 OCR 永远不可用的包比打不出包更难排查。
     Copy-OcrModelsTo -Destination "$archiveName\ocr\models"
+    # 第三方许可文本（见 LICENSES/README.md 与 THIRD-PARTY-NOTICES.md）：
+    # 与模型文件同等重要，缺失同样中止打包。
+    Copy-LicenseFiles -Destination "$archiveName\licenses"
     cp $Qt6_DIR\bin\libgcc_s_seh-1.dll $archiveName\
     cp $Qt6_DIR\bin\libstdc++-6.dll $archiveName\
     cp $Qt6_DIR\bin\libwinpthread-1.dll $archiveName\

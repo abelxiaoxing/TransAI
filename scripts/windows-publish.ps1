@@ -19,6 +19,7 @@ param (
 # msvcArch: x86
 
 . "$PSScriptRoot/ocr-models.ps1"
+. "$PSScriptRoot/release-assets.ps1"
 
 $scriptDir = $PSScriptRoot
 $currentDir = Get-Location
@@ -38,6 +39,9 @@ function Main() {
     # 内置 OCR 模型（见 scripts/fetch_ocr_models.sh）。缺失就中止打包：
     # 打出一个 OCR 永远不可用的包比打不出包更难排查。
     Copy-OcrModelsTo -Destination "$archiveName\ocr\models"
+    # 第三方许可文本（见 LICENSES/README.md 与 THIRD-PARTY-NOTICES.md）：
+    # 与模型文件同等重要，缺失同样中止打包。
+    Copy-LicenseFiles -Destination "$archiveName\licenses"
     # 拷贝vcRedist dll
     $redistDll="{0}{1}\*.CRT\*.dll" -f $env:vcToolsRedistDir.Trim(),$env:msvcArch
     Copy-Item $redistDll $archiveName\
