@@ -71,14 +71,27 @@ void TranslationHistory::clear()
     emit entriesChanged();
 }
 
-void TranslationHistory::removeAt(int index)
+QString TranslationHistory::findCachedResult(const QString& source,
+                                             const QString& targetLanguage) const
 {
-    if (index < 0 || index >= m_entries.size()) {
-        return;
+    const QString normalizedSource = source.trimmed();
+    if (normalizedSource.isEmpty() || targetLanguage.isEmpty()) {
+        return QString();
     }
-    m_entries.removeAt(index);
-    save();
-    emit entriesChanged();
+    for (const QVariant& variant : m_entries) {
+        const QVariantMap entry = variant.toMap();
+        if (entry.value(QLatin1String(kSourceKey)).toString().trimmed() != normalizedSource) {
+            continue;
+        }
+        if (entry.value(QLatin1String(kTargetLanguageKey)).toString() != targetLanguage) {
+            continue;
+        }
+        const QString result = entry.value(QLatin1String(kResultKey)).toString();
+        if (!result.trimmed().isEmpty()) {
+            return result;
+        }
+    }
+    return QString();
 }
 
 void TranslationHistory::load()

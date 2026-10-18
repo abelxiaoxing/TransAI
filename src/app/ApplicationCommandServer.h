@@ -24,12 +24,17 @@ signals:
 
 private:
     static QString serverName();
+    // True when something is already listening on `name` (used to refuse to
+    // steal a live instance's socket, and to detect stale leftovers).
+    static bool hasLiveInstance(const QString& name);
     void acceptConnections();
     void readFromClient(QLocalSocket* socket);
     void finishClient(QLocalSocket* socket);
 
     QLocalServer m_server;
     QHash<QLocalSocket*, QByteArray> m_buffers;
+    // Set when start() fails for a reason QLocalServer does not report itself.
+    QString m_errorString;
 };
 
 #endif // APPLICATION_COMMAND_SERVER_H

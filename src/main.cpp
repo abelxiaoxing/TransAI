@@ -24,14 +24,14 @@
 
 int main(int argc, char *argv[])
 {
-    #ifdef Q_OS_LINUX
-        // Software rendering works around GPU pipeline failures on some Linux
-        // systems. Users can still override by exporting QT_QUICK_BACKEND
-        // before launching (e.g. QT_QUICK_BACKEND=quick for hardware access).
-        if (!qEnvironmentVariableIsSet("QT_QUICK_BACKEND")) {
-            qputenv("QT_QUICK_BACKEND", "software");
-        }
-    #endif
+#ifdef Q_OS_LINUX
+    // Software rendering works around GPU pipeline failures on some Linux
+    // systems. Users can still override by exporting QT_QUICK_BACKEND
+    // before launching (e.g. QT_QUICK_BACKEND=quick for hardware access).
+    if (!qEnvironmentVariableIsSet("QT_QUICK_BACKEND")) {
+        qputenv("QT_QUICK_BACKEND", "software");
+    }
+#endif
 
     QGuiApplication app(argc, argv);
     QCoreApplication::setApplicationName("TransAI");
@@ -97,15 +97,16 @@ int main(int argc, char *argv[])
     // I18n lives in QML (the I18n singleton reads Setting.displayLanguage),
     // so no QTranslator is installed here.
 
-    Setting * setting = new Setting(&app);
-    WindowDismissHelper * windowDismiss = new WindowDismissHelper(&app);
-    GlobalClickMonitor * clickMonitor = new GlobalClickMonitor(&app);
-    ClipboardHelper * clipboard = new ClipboardHelper(&app);
-    TranslationHistory * translationHistory = new TranslationHistory(&app);
+    auto* setting = new Setting(&app);
+    auto* windowDismiss = new WindowDismissHelper(&app);
+    auto* clickMonitor = new GlobalClickMonitor(&app);
+    auto* clipboard = new ClipboardHelper(&app);
+    auto* translationHistory = new TranslationHistory(&app);
     // OCR backend for the screenshot OCR path (tesseract CLI on
     // Linux/Windows, Vision framework on macOS); always a valid object.
-    OcrEngine * ocrEngine = createOcrEngine().release();
+    auto* ocrEngine = createOcrEngine().release();
     ocrEngine->setParent(&app);
+
     qmlRegisterType<TranslationService>("TransAI", 1, 0, "TranslationService");
     qmlRegisterType<VisionTranslationService>("TransAI", 1, 0, "VisionTranslationService");
     qmlRegisterType<ScreenshotCaptureService>("TransAI", 1, 0, "ScreenshotCaptureService");

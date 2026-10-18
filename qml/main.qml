@@ -10,10 +10,13 @@ import TransAI
 Window {
     id: mainWindow
     visible: !startHidden
-    width: 460
-    height: 700
-    minimumHeight: 500
-    minimumWidth: 400
+    // Geometry comes from Setting (single source of truth: the same constants
+    // clamp the persisted size on load). The width/height bindings are
+    // deliberately broken by the WM on user resize and by the restore below.
+    width: setting.defaultWindowWidth
+    height: setting.defaultWindowHeight
+    minimumWidth: setting.minWindowWidth
+    minimumHeight: setting.minWindowHeight
     title: "TransAI"
 
     // 应用主题样式
@@ -21,10 +24,23 @@ Window {
 
     property bool isDraggingWindow: false
     property bool usingSystemMove: false
+    // 置顶状态的唯一来源。按钮本身是窗口级 chrome（见下方左上角的 pinButton），
+    // 翻译页与设置页共用同一枚按钮，所以状态属于窗口而不是某一页。
+    property bool pinned: false
     // 指针最近一次离开窗口的时间戳（Date.now() 毫秒），-1 表示本次显示以来未离开过。
     // Wayland 客户端无法感知窗口外的点击，该时间用于区分“鼠标移开导致的失焦”
     // 与“点击别处导致的失焦”（见 WindowDismissHelper）。
     property double lastPointerLeaveMs: -1
+
+    // 置顶开关：唯一写入口，窗口 flags 只在这里变更。
+    function setPinned(value) {
+        mainWindow.pinned = value
+        if (value) {
+            mainWindow.flags = mainWindow.flags | Qt.WindowStaysOnTopHint
+        } else {
+            mainWindow.flags = mainWindow.flags & ~Qt.WindowStaysOnTopHint
+        }
+    }
 
     function showMainWindow() {
         closeWindowAnimation.stop()
@@ -41,7 +57,7 @@ Window {
     // - Wayland：无法感知窗口外点击，仅当失焦明显不是指针离开引起时才隐藏；
     // - Windows/macOS：指针移动不会导致失焦，失焦即视为点击外部。
     function tryAutoHide() {
-        if (mainWindow.active || appView.pinned || isDraggingWindow) {
+        if (mainWindow.active || mainWindow.pinned || isDraggingWindow) {
             return
         }
         var sinceLeave = lastPointerLeaveMs < 0 ? -1 : Date.now() - lastPointerLeaveMs
@@ -51,7 +67,7 @@ Window {
     }
 
     function handleApplicationCommand(command) {
-        console.log("Application command:", command)
+        console.debug("Application command:", command)
         if (command === "translate-selection") {
             selectionTextProvider.requestSelectedText()
         } else if (command === "translate-screenshot") {
@@ -169,9 +185,15 @@ Window {
         }
         onShortcutRegisterFailed: function(actionId, reason) {
             console.warn("Shortcut registration failed", actionId, reason)
-            // Surface startup/registration failures in the settings UI instead
-            // of leaving the user with a silently broken hotkey.
-            settingView.hotkeyError = reason
+            // Surface startup/registration failures next to the recorder that
+            // owns the action (a screenshot-hotkey failure used to show up in
+            // the selection card) instead of leaving the user with a silently
+            // broken hotkey.
+            if (actionId === "translateScreenshot") {
+                settingView.screenshotHotkeyError = reason
+            } else {
+                settingView.hotkeyError = reason
+            }
         }
     }
 
@@ -237,7 +259,7 @@ Window {
     Connections {
         target: globalClickMonitor
         function onLeftButtonPressed() {
-            if (!mainWindow.visible || windowHover.hovered || appView.pinned || isDraggingWindow) {
+            if (!mainWindow.visible || windowHover.hovered || mainWindow.pinned || isDraggingWindow) {
                 return
             }
             outsideClickCheckTimer.restart()
@@ -249,7 +271,7 @@ Window {
         interval: 120
         repeat: false
         onTriggered: {
-            if (!mainWindow.visible || windowHover.hovered || appView.pinned || isDraggingWindow) {
+            if (!mainWindow.visible || windowHover.hovered || mainWindow.pinned || isDraggingWindow) {
                 return
             }
             // 这次物理点击若同时投递到了本窗口（含场景内弹窗），则不是点击外部。
@@ -263,25 +285,25 @@ Window {
         }
     }
 
+    // Sole registration funnel for every global hotkey: the action id picks
+    // the slot, so the selection and screenshot recorders cannot drift apart
+    // and GlobalShortcutManager rejects a chord that another action holds.
+    // `lastError` carries the manager's reason for a rejected attempt.
     QtObject {
         id: shortcutRegistrar
-        function setShortcut(shortcut) {
-            shortcutManager.unregisterShortcut("translateSelection")
-            if (shortcut.length === 0) {
-                return true
-            }
-            return shortcutManager.registerShortcut("translateSelection", shortcut)
-        }
-    }
+        property string lastError: ""
 
-    QtObject {
-        id: screenshotShortcutRegistrar
-        function setShortcut(shortcut) {
-            shortcutManager.unregisterShortcut("translateScreenshot")
+        function setShortcut(actionId, shortcut) {
+            lastError = ""
             if (shortcut.length === 0) {
+                shortcutManager.unregisterShortcut(actionId)
                 return true
             }
-            return shortcutManager.registerShortcut("translateScreenshot", shortcut)
+            const registered = shortcutManager.registerShortcut(actionId, shortcut)
+            if (!registered) {
+                lastError = shortcutManager.lastError
+            }
+            return registered
         }
     }
 
@@ -295,8 +317,8 @@ Window {
         if (setting.windowHeight > 0) {
             mainWindow.height = setting.windowHeight
         }
-        shortcutRegistrar.setShortcut(setting.shortCut)
-        screenshotShortcutRegistrar.setShortcut(setting.screenshotShortCut)
+        shortcutRegistrar.setShortcut("translateSelection", setting.shortCut)
+        shortcutRegistrar.setShortcut("translateScreenshot", setting.screenshotShortCut)
         if (initialCommand.length > 0) {
             Qt.callLater(function() {
                 mainWindow.handleApplicationCommand(initialCommand)
@@ -423,10 +445,13 @@ Window {
                 event.accepted = true
                 return
             }
-            if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_Return ||
-               (event.modifiers & Qt.MetaModifier) && event.key === Qt.Key_Return) {
-              // Command+Enter or Ctrl+Enter pressed
-            appView.startTrans()
+            const isTranslateChord = (event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_Return
+                || (event.modifiers & Qt.MetaModifier) && event.key === Qt.Key_Return
+            // Only the main view owns the translate shortcut: firing it while
+            // the settings page is open would translate the hidden input field.
+            if (isTranslateChord && pageStack.currentIndex === 0) {
+                appView.startTrans()
+                event.accepted = true
             }
         }
 
@@ -485,24 +510,44 @@ Window {
                 onCloseRequested: {
                     closeWindowAnimation.start()
                 }
-                // AppView 只上报置顶变化，由窗口本身应用 flags
-                onPinRequested: function(pinned) {
-                    if (pinned) {
-                        mainWindow.flags = mainWindow.flags | Qt.WindowStaysOnTopHint
-                    } else {
-                        mainWindow.flags = mainWindow.flags & ~Qt.WindowStaysOnTopHint
-                    }
-                }
             }
             SettingView{
                 id:settingView
                 shortcutRegistrar: shortcutRegistrar
-                screenshotShortcutRegistrar: screenshotShortcutRegistrar
                 hotkeysSupported: shortcutManager.hotkeysSupported
                 onBackClicked: {
                     settingView.flushPendingSave()
                     pageStack.currentIndex = 0
                 }
+            }
+        }
+
+        // 置顶按钮：窗口级 chrome，固定在窗口左上角，翻译页与设置页共用同一枚
+        // 按钮（页面内不再有副本，切换页面/滚动时它也不会移动）。状态唯一来源
+        // 是 mainWindow.pinned，图标随其派生。
+        Image {
+            id: pinButton
+            z: 20
+            width: 22
+            height: 22
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.leftMargin: 16
+            anchors.topMargin: 15
+            opacity: pinArea.containsMouse ? 1.0 : 0.85
+            Behavior on opacity {
+                NumberAnimation { duration: 80 }
+            }
+            source: mainWindow.pinned ? "qrc:///res/thumbtack_yes.png" : "qrc:///res/thumbtack_no.png"
+            Accessible.role: Accessible.Button
+            Accessible.name: mainWindow.pinned ? I18n.t("Unpin window") : I18n.t("Pin window")
+            Accessible.onPressAction: mainWindow.setPinned(!mainWindow.pinned)
+            MouseArea {
+                id: pinArea
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: mainWindow.setPinned(!mainWindow.pinned)
             }
         }
     }

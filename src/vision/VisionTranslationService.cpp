@@ -48,7 +48,7 @@ void VisionTranslationService::translateImage(const QImage& image, const QString
         failValidation(QStringLiteral("Please select a model"));
         return;
     }
-    if (request.provider != "ollama" && !ProviderDefaults::isPlausibleApiKey(request.apiKey)) {
+    if (!ProviderDefaults::isOllamaProvider(request.provider) && !ProviderDefaults::isPlausibleApiKey(request.apiKey)) {
         failValidation(ProviderDefaults::apiKeyErrorMessage());
         return;
     }
@@ -77,7 +77,7 @@ VisionTranslationService::PendingRequest VisionTranslationService::buildPendingR
         ProviderEndpointBuilder::buildChatCompletionUrl(request.apiServer, request.provider));
     pending.networkRequest.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     pending.networkRequest.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork);
-    if (request.provider != "ollama") {
+    if (!ProviderDefaults::isOllamaProvider(request.provider)) {
         pending.networkRequest.setRawHeader(
             "Authorization", QString("Bearer %1").arg(request.apiKey.trimmed()).toUtf8());
     }

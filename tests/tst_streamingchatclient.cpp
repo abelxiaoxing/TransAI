@@ -2,7 +2,10 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 
+#include <QImage>
+
 #include "translation/TranslationService.h"
+#include "vision/VisionTranslationService.h"
 
 // Exercises StreamingChatClient end-to-end through its TranslationService
 // subclass against a scripted in-process HTTP server: SSE streaming, the
@@ -102,7 +105,7 @@ private:
 void translateOllama(TranslationService& service, const QString& apiServer,
                      const QString& text = QStringLiteral("hello"))
 {
-    service.translate(text, QStringLiteral("English"), 0, QStringLiteral("ollama"),
+    service.translate(text, QStringLiteral("English"), QStringLiteral("ollama"),
                       apiServer, QString(), QStringLiteral("qwen3"));
 }
 
@@ -119,6 +122,7 @@ private slots:
     void mapsUnparseableServerError();
     void abortEmitsStopped();
     void rejectsEmptyTextWithoutRequest();
+    void visionRequestBodyCarriesImageAndPrompt();
 };
 
 void TestStreamingChatClient::streamsContentToFinished()
@@ -253,6 +257,56 @@ void TestStreamingChatClient::rejectsEmptyTextWithoutRequest()
     QCOMPARE(failedSpy.takeFirst().at(0).toString(), QStringLiteral("Please enter text to translate"));
     QTest::qWait(200);
     QCOMPARE(server.receivedBodies.size(), 0);
+}
+
+void TestStreamingChatClient::visionRequestBodyCarriesImageAndPrompt()
+{
+    FakeChatServer server;
+    QVERIFY(server.start());
+    server.responses << ScriptedResponse{ 200, "OK", "text/event-stream",
+        sseDelta(QStringLiteral("Hallo")) + "data: [DONE]\n\n", false };
+
+    QImage image(64, 48, QImage::Format_RGB32);
+    image.fill(Qt::darkGreen);
+
+    VisionTranslationService service;
+    QSignalSpy finishedSpy(&service, &VisionTranslationService::translationFinished);
+    QSignalSpy failedSpy(&service, &VisionTranslationService::translationFailed);
+
+    service.translateImage(image, QStringLiteral("English"), QStringLiteral("ollama"),
+                           QStringLiteral("http://127.0.0.1:%1").arg(server.port()),
+                           QString(), QStringLiteral("llava"), 1600, 85);
+
+    QTRY_VERIFY_WITH_TIMEOUT(finishedSpy.count() == 1, 5000);
+    QCOMPARE(failedSpy.count(), 0);
+    QCOMPARE(server.receivedBodies.size(), 1);
+
+    // The multimodal body is assembled in VisionTranslationService, not in
+    // PromptBuilder: lock down the parts the API contract depends on.
+    const QJsonObject body = QJsonDocument::fromJson(server.receivedBodies.at(0)).object();
+    const QJsonArray messages = body.value(QStringLiteral("messages")).toArray();
+    QVERIFY(messages.size() >= 2);
+
+    const QJsonObject systemMessage = messages.at(0).toObject();
+    QCOMPARE(systemMessage.value(QStringLiteral("role")).toString(), QStringLiteral("system"));
+    QVERIFY(systemMessage.value(QStringLiteral("content")).toString()
+                .contains(QStringLiteral("Extract the text from the image")));
+
+    const QJsonArray userContent = messages.at(1).toObject().value(QStringLiteral("content")).toArray();
+    bool foundImagePart = false;
+    for (const QJsonValue& part : userContent) {
+        const QJsonObject object = part.toObject();
+        if (object.value(QStringLiteral("type")).toString() != QStringLiteral("image_url")) {
+            continue;
+        }
+        foundImagePart = true;
+        const QString url = object.value(QStringLiteral("image_url")).toObject()
+                                .value(QStringLiteral("url")).toString();
+        QVERIFY(url.startsWith(QStringLiteral("data:image/jpeg;base64,")));
+        QVERIFY(url.size() > 100); // payload really attached
+    }
+    QVERIFY(foundImagePart);
+    QCOMPARE(body.value(QStringLiteral("model")).toString(), QStringLiteral("llava"));
 }
 
 QTEST_GUILESS_MAIN(TestStreamingChatClient)

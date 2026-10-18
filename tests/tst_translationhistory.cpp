@@ -16,6 +16,7 @@ private slots:
     void capacityCapped();
     void clearEmpties();
     void screenshotEntriesHaveEmptySource();
+    void findCachedResultMatchesIdenticalRequest();
 };
 
 void TestTranslationHistory::initTestCase()
@@ -90,6 +91,37 @@ void TestTranslationHistory::screenshotEntriesHaveEmptySource()
     const QVariantMap entry = history.entries().first().toMap();
     QCOMPARE(entry.value(QStringLiteral("type")).toString(), QStringLiteral("screenshot"));
     QCOMPARE(entry.value(QStringLiteral("source")).toString(), QString());
+    history.clear();
+}
+
+void TestTranslationHistory::findCachedResultMatchesIdenticalRequest()
+{
+    TranslationHistory history;
+    history.clear();
+    history.addEntry(QStringLiteral("text"), QStringLiteral("hello"),
+                     QStringLiteral("你好"), QStringLiteral("简体中文"));
+    history.addEntry(QStringLiteral("screenshot"), QString(),
+                     QStringLiteral("截图结果"), QStringLiteral("简体中文"));
+
+    // Identical source + target language hits the stored result.
+    QCOMPARE(history.findCachedResult(QStringLiteral("hello"), QStringLiteral("简体中文")),
+             QStringLiteral("你好"));
+    // Surrounding whitespace is not a different request.
+    QCOMPARE(history.findCachedResult(QStringLiteral("  hello\n"), QStringLiteral("简体中文")),
+             QStringLiteral("你好"));
+    // Different target language, different text, empty source, screenshot
+    // entries and blank lookups never match.
+    QCOMPARE(history.findCachedResult(QStringLiteral("hello"), QStringLiteral("English")), QString());
+    QCOMPARE(history.findCachedResult(QStringLiteral("hello!"), QStringLiteral("简体中文")), QString());
+    QCOMPARE(history.findCachedResult(QString(), QStringLiteral("简体中文")), QString());
+    QCOMPARE(history.findCachedResult(QStringLiteral("  "), QStringLiteral("简体中文")), QString());
+    QCOMPARE(history.findCachedResult(QStringLiteral("截图结果"), QStringLiteral("简体中文")), QString());
+
+    // A newer answer for the same request wins (the cache follows the history).
+    history.addEntry(QStringLiteral("text"), QStringLiteral("hello"),
+                     QStringLiteral("喂"), QStringLiteral("简体中文"));
+    QCOMPARE(history.findCachedResult(QStringLiteral("hello"), QStringLiteral("简体中文")),
+             QStringLiteral("喂"));
     history.clear();
 }
 

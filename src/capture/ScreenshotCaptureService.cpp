@@ -8,6 +8,7 @@
 #include <QVariantMap>
 
 #include "capture/PortalScreenshotBackend.h"
+#include "capture/ScreenshotGeometry.h"
 #include "vision/ImagePayloadBuilder.h"
 
 namespace {
@@ -97,9 +98,12 @@ QVariantList ScreenshotCaptureService::grabbedScreenInfos()
         QVariantMap info;
         info.insert(QStringLiteral("previewWidth"), m_previewSizes.at(i).width());
         info.insert(QStringLiteral("previewHeight"), m_previewSizes.at(i).height());
+        // Hand the (potentially multi-megabyte) base64 preview over to QML and
+        // drop our copy: the Image source owns it from here on, and the crop
+        // always comes from the original grab.
         info.insert(QStringLiteral("dataUrl"), m_previewDataUrls.at(i));
-        infos.append(info);
     }
+    m_previewDataUrls.clear();
     return infos;
 }
 
@@ -118,15 +122,10 @@ void ScreenshotCaptureService::finishRegionSelection(int screenIndex, int x, int
     const QImage original = m_grabbedImages.at(screenIndex);
     const QSize preview = m_previewSizes.at(screenIndex);
 
-    // Map preview-pixel coordinates back onto the original image.
-    const double scaleX = static_cast<double>(original.width()) / preview.width();
-    const double scaleY = static_cast<double>(original.height()) / preview.height();
-    const QRect cropRect(
-        qRound(x * scaleX),
-        qRound(y * scaleY),
-        qRound(width * scaleX),
-        qRound(height * scaleY));
-    const QRect bounded = cropRect.intersected(original.rect());
+    // Map preview-pixel coordinates back onto the original image (pure
+    // helper, unit-tested in tst_screenshotgeometry).
+    const QRect bounded = ScreenshotGeometry::mapPreviewRectToOriginal(
+        original.size(), preview, QRect(x, y, width, height));
 
     const QImage cropped = bounded.isEmpty() ? QImage() : original.copy(bounded);
     clearGrabbedScreens();

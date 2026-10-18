@@ -46,7 +46,6 @@ set(HEADERS
     src/settings/Setting.h
     src/settings/SecretStore.h
     src/ocr/OcrEngine.h
-    src/translation/TranslationRequest.h
     src/translation/PromptBuilder.h
     src/translation/StreamParser.h
     src/translation/StreamingChatClient.h
@@ -54,12 +53,14 @@ set(HEADERS
     src/providers/ProviderDefaults.h
     src/providers/ApiError.h
     src/providers/ProviderEndpointBuilder.h
+    src/providers/NetworkErrorMapper.h
     src/providers/ModelDiscoveryService.h
     src/providers/ThinkingPolicy.h
     src/input/GlobalShortcutManager.h
     src/input/GlobalClickMonitor.h
     src/input/ClipboardGuard.h
     src/input/SelectionTextProvider.h
+    src/capture/ScreenshotGeometry.h
     src/capture/ScreenshotCaptureService.h
     src/capture/PortalScreenshotBackend.h
     src/vision/ImagePayloadBuilder.h
@@ -73,12 +74,12 @@ set(SOURCES
     src/app/TranslationHistory.cpp
     src/app/WindowDismissHelper.cpp
     src/settings/Setting.cpp
-    src/translation/TranslationRequest.cpp
     src/translation/PromptBuilder.cpp
     src/translation/StreamParser.cpp
     src/translation/StreamingChatClient.cpp
     src/translation/TranslationService.cpp
     src/providers/ProviderEndpointBuilder.cpp
+    src/providers/NetworkErrorMapper.cpp
     src/providers/ModelDiscoveryService.cpp
     src/providers/ThinkingPolicy.cpp
     src/input/GlobalShortcutManager.cpp
@@ -96,7 +97,6 @@ set(RESOURCES
 )
 
 add_subdirectory(lib/)
-
 
 IF (CMAKE_SYSTEM_NAME MATCHES "Linux")
 	MESSAGE(STATUS "current platform: Linux ")

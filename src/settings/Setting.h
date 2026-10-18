@@ -28,7 +28,8 @@ class Setting : public QObject
 
     // Screenshot (multimodal) translation. Empty screenshotShortCut means
     // "not configured" (no hotkey is registered). screenshotTranslateMode is
-    // "auto" | "vision" ("ocr" is reserved for a later phase). An empty
+    // "auto" | "vision" | "ocr" (OCR falls back to vision when no backend is
+    // available; see AppView.effectiveScreenshotMode()). An empty
     // screenshotVisionModel means "follow the current translation model".
     Q_PROPERTY_AUTO(QString, screenshotShortCut);
     Q_PROPERTY_AUTO(QString, screenshotTranslateMode);
@@ -36,12 +37,9 @@ class Setting : public QObject
     Q_PROPERTY_AUTO(int, screenshotMaxImageWidth);
     Q_PROPERTY_AUTO(int, screenshotJpegQuality);
 
-    // Main-view preferences. Empty targetLanguage means "not set" (QML falls
-    // back to the first entry of its language list). translationMode mirrors
-    // the TranslationMode enum as an int (0=Translate, 1=ExplainWord,
-    // 2=CorrectGrammar); values are clamped to that range on load.
+    // Main-view preference. Empty targetLanguage means "not set" (QML falls
+    // back to the first entry of its language list).
     Q_PROPERTY_AUTO(QString, targetLanguage);
-    Q_PROPERTY_AUTO(int, translationMode);
 
     // Main-window geometry. 0 means "not set" (QML falls back to its
     // defaults); loaded values are clamped to the window's min/max bounds.
@@ -50,6 +48,11 @@ class Setting : public QObject
     // already keeps the window on screen.
     Q_PROPERTY_AUTO(int, windowWidth);
     Q_PROPERTY_AUTO(int, windowHeight);
+
+    // True when the API key currently lives in the OS keychain (and therefore
+    // not in config.json). Read-only UI hint; updated by loadConfig() and
+    // updateConfig().
+    Q_PROPERTY(bool apiKeyStoredSecurely READ apiKeyStoredSecurely NOTIFY apiKeyStoredSecurelyChanged)
 
     // Active-provider view, computed on demand from the per-provider values
     // above. No members and no NOTIFY signals: QML only reads these
@@ -66,7 +69,24 @@ class Setting : public QObject
     Q_PROPERTY(QString defaultOllamaApiServer READ defaultOllamaApiServer CONSTANT)
     Q_PROPERTY(QString defaultOpenAiModel READ defaultOpenAiModel CONSTANT)
 
+    // Window geometry: single source of truth shared with main.qml (the window
+    // sizes itself from these and loadConfig() clamps persisted values to the
+    // same bounds).
+    Q_PROPERTY(int defaultWindowWidth READ defaultWindowWidth CONSTANT)
+    Q_PROPERTY(int defaultWindowHeight READ defaultWindowHeight CONSTANT)
+    Q_PROPERTY(int minWindowWidth READ minWindowWidth CONSTANT)
+    Q_PROPERTY(int minWindowHeight READ minWindowHeight CONSTANT)
+    Q_PROPERTY(int maxWindowWidth READ maxWindowWidth CONSTANT)
+    Q_PROPERTY(int maxWindowHeight READ maxWindowHeight CONSTANT)
+
 public:
+    static constexpr int kDefaultWindowWidth = 460;
+    static constexpr int kDefaultWindowHeight = 700;
+    static constexpr int kMinWindowWidth = 400;
+    static constexpr int kMaxWindowWidth = 3840;
+    static constexpr int kMinWindowHeight = 500;
+    static constexpr int kMaxWindowHeight = 2160;
+
     explicit Setting(QObject* parent = nullptr);
     // Test seam: inject a fake SecretStore to exercise the keychain
     // read/migration/fallback logic deterministically.
@@ -84,22 +104,32 @@ public:
     // request-time fallback in TranslationService/ModelDiscoveryService.
     QString apiServer() const
     {
-        if (_provider == QLatin1String("ollama")) {
+        if (ProviderDefaults::isOllamaProvider(_provider)) {
             return _ollamaApiServer.trimmed().isEmpty() ? ProviderDefaults::ollamaApiServer() : _ollamaApiServer;
         }
         return _openaiApiServer.trimmed().isEmpty() ? ProviderDefaults::openAiApiServer() : _openaiApiServer;
     }
     // Ollama ignores API keys; the single stored key always belongs to the
-    // OpenAI-compatible provider.
-    QString apiKey() const { return _openaiApiKey; }
+    // OpenAI-compatible provider. Trimmed so a pasted key with stray
+    // whitespace is never sent (or stored) verbatim.
+    QString apiKey() const { return _openaiApiKey.trimmed(); }
     QString model() const
     {
-        if (_provider == QLatin1String("ollama")) {
+        if (ProviderDefaults::isOllamaProvider(_provider)) {
             return _ollamaModel;
         }
         return _openaiModel.trimmed().isEmpty() ? ProviderDefaults::openAiDefaultModel() : _openaiModel;
     }
     QString provider() const { return _provider; }
+
+    bool apiKeyStoredSecurely() const { return m_apiKeyStoredSecurely; }
+
+    int defaultWindowWidth() const { return kDefaultWindowWidth; }
+    int defaultWindowHeight() const { return kDefaultWindowHeight; }
+    int minWindowWidth() const { return kMinWindowWidth; }
+    int minWindowHeight() const { return kMinWindowHeight; }
+    int maxWindowWidth() const { return kMaxWindowWidth; }
+    int maxWindowHeight() const { return kMaxWindowHeight; }
 
     QString defaultOpenAiApiServer() const { return ProviderDefaults::openAiApiServer(); }
     QString defaultOllamaApiServer() const { return ProviderDefaults::ollamaApiServer(); }
@@ -133,14 +163,23 @@ public:
 
 signals:
     void providerChanged();
+    void apiKeyStoredSecurelyChanged();
 
 private:
     QString _provider;
     QString m_configPath;
     std::unique_ptr<SecretStore> m_secretStore;
+    void setApiKeyStoredSecurely(bool storedSecurely);
+
     // Set by loadConfig() when a plaintext API key was migrated into the
     // secret store; the constructor then re-saves to drop the plaintext.
     bool m_apiKeyMigratedToStore = false;
+    // Last API key value actually written to (or read from) the secret store.
+    // updateConfig() skips the keychain round-trip when the key is unchanged:
+    // it runs on every settings edit, and a keychain write per keystroke is
+    // both slow and (with some backends) a blocking prompt.
+    QString m_lastStoredApiKey;
+    bool m_apiKeyStoredSecurely = false;
 };
 
 #endif // SETTING_H

@@ -22,42 +22,12 @@ QJsonArray PromptBuilder::buildMessages(const TranslationRequest& request, const
 {
     QJsonArray messages;
     const QString targetLanguage = effectiveTargetLanguage(request.targetLanguage);
-    QString systemPrompt;
-    QString userMsg;
-
-    switch (request.mode) {
-    case TranslationMode::Translate:
-        // Tag-style delimiters are far less likely to appear inside user text
-        // than triple backticks, and are easier for the model to keep intact.
-        systemPrompt = QString("Translate the text enclosed in <text_to_translate> tags into %1. "
-                               "Only return the translated result; do not interpret it, "
-                               "do not include the tags.").arg(targetLanguage);
-        userMsg = "<text_to_translate>" + request.text + "</text_to_translate>";
-        break;
-    // The mode selector in AppView drives this switch (0/1/2, persisted as
-    // Setting.translationMode).
-    case TranslationMode::ExplainWord:
-        systemPrompt = QString(
-            "Explain the text enclosed in <text_to_explain> tags. "
-            "When the text is a single word, provide: the original form (if applicable), "
-            "the language of the word, the corresponding phonetic transcription (if applicable), "
-            "all meanings (including parts of speech), and at least three bilingual examples. "
-            "Strictly follow this format:\n"
-            "<Original Text>\n"
-            "[<Language>] · /<Phonetic Transcription>/\n"
-            "[<Part of Speech Abbreviation>] <Meaning in %1>\n"
-            "Examples:\n"
-            "<Number>. <Example> (<Example Translation>)\n"
-            "All output text must be written in %1.").arg(targetLanguage);
-        userMsg = "<text_to_explain>" + request.text + "</text_to_explain>";
-        break;
-    case TranslationMode::CorrectGrammar:
-        systemPrompt = QString("Strictly correct the grammar mistakes, typos and factual errors "
-                               "of the sentence enclosed in <text_to_correct> tags. "
-                               "Only correct the sentence; do not add explanations.");
-        userMsg = "<text_to_correct>" + request.text + "</text_to_correct>";
-        break;
-    }
+    // Tag-style delimiters are far less likely to appear inside user text than
+    // triple backticks, and are easier for the model to keep intact.
+    QString systemPrompt = QString("Translate the text enclosed in <text_to_translate> tags into %1. "
+                                   "Only return the translated result; do not interpret it, "
+                                   "do not include the tags.").arg(targetLanguage);
+    const QString userMsg = "<text_to_translate>" + request.text + "</text_to_translate>";
 
     // Apply thinking suppression at the prompt level (safe for any model).
     if (policy.noThinkTag) {

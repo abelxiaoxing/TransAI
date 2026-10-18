@@ -39,7 +39,7 @@ QUrl ProviderEndpointBuilder::buildChatCompletionUrl(const QString& apiServer, c
     QUrl url = requestUrl(apiServer, ProviderDefaults::defaultApiServerForProvider(normalizedProvider));
     QString path = trimTrailingSlash(url.path());
 
-    if (normalizedProvider == QLatin1String("ollama")) {
+    if (ProviderDefaults::isOllamaProvider(normalizedProvider)) {
         if (path.endsWith(QLatin1String("/v1"))) {
             path += QLatin1String("/chat/completions");
         } else {
@@ -75,7 +75,7 @@ QUrl ProviderEndpointBuilder::buildModelListUrl(const QString& apiServer, const 
     QUrl url = requestUrl(apiServer, ProviderDefaults::defaultApiServerForProvider(normalizedProvider));
     QString path = trimTrailingSlash(url.path());
 
-    if (normalizedProvider == QLatin1String("ollama")) {
+    if (ProviderDefaults::isOllamaProvider(normalizedProvider)) {
         if (path.endsWith(QLatin1String("/api/tags"))) {
             // already correct
         } else if (path.isEmpty() || path == QLatin1String("/") || path.endsWith(QLatin1String("/v1"))) {
