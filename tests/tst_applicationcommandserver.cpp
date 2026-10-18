@@ -1,6 +1,7 @@
 #include <QDir>
 #include <QFile>
 #include <QLocalServer>
+#include <QLocalSocket>
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTemporaryDir>
@@ -22,6 +23,7 @@ class TestApplicationCommandServer : public QObject {
     Q_OBJECT
 
 private slots:
+    void diagnoseForwarding();
     void init();
     void cleanup();
 
@@ -48,19 +50,42 @@ void TestApplicationCommandServer::cleanup() {
     QFile::remove(socketPath());
 }
 
+void TestApplicationCommandServer::diagnoseForwarding() {
+    QFile::remove(socketPath());
+    ApplicationCommandServer server;
+    const bool started = server.start();
+    qInfo() << "start()" << started << "error:" << server.errorString()
+            << "serverName:" << server.serverName() << "socketPath:" << socketPath();
+
+    for (const auto mode : { QIODevice::WriteOnly, QIODevice::ReadWrite }) {
+        QLocalSocket socket;
+        socket.connectToServer(server.serverName(), mode);
+        const bool connected = socket.waitForConnected(500);
+        qInfo() << "mode" << int(mode) << "connected" << connected
+                << "error:" << socket.errorString() << "state:" << int(socket.state());
+        if (!connected) {
+            continue;
+        }
+        const QByteArray payload = QByteArray("probe\n");
+        const qint64 written = socket.write(payload);
+        const bool flushed = socket.waitForBytesWritten(500);
+        qInfo() << "  written" << written << "of" << payload.size() << "flushed" << flushed
+                << "error:" << socket.errorString();
+        socket.disconnectFromServer();
+    }
+
+    QString error;
+    const bool forwarded = ApplicationCommandServer::sendCommandToRunningInstance(
+        QStringLiteral("translate-selection"), 500, &error);
+    qInfo() << "sendCommandToRunningInstance" << forwarded << "error:" << error;
+    QVERIFY(!forwarded || forwarded);
+}
+
 void TestApplicationCommandServer::forwardsCommandToRunningInstance() {
     ApplicationCommandServer server;
     QVERIFY(server.start());
 
     QSignalSpy receivedSpy(&server, &ApplicationCommandServer::commandReceived);
-#ifdef Q_OS_WIN
-    // Known Windows gap: listen() succeeds, but connectToServer() against the
-    // resulting named pipe fails, so single-instance command forwarding is
-    // unverified there. Marked expected-failure (not skipped) so the day it
-    // starts working CI reports an unexpected pass instead of silently keeping
-    // a stale TODO.
-    QEXPECT_FAIL("", "QLocalServer forwarding is not verified on Windows yet", Abort);
-#endif
     QString error;
     const bool forwarded = ApplicationCommandServer::sendCommandToRunningInstance(
         QStringLiteral("translate-selection"), 500, &error);
@@ -85,12 +110,6 @@ void TestApplicationCommandServer::staleSocketArtifactIsReclaimed() {
     QVERIFY2(server.start(), qPrintable(server.errorString()));
 
     QSignalSpy receivedSpy(&server, &ApplicationCommandServer::commandReceived);
-#ifdef Q_OS_WIN
-    // Same Windows gap as above; the expectation must sit directly in front of
-    // the statement that fails, otherwise QtTest reports it as an unexpected
-    // pass.
-    QEXPECT_FAIL("", "QLocalServer forwarding is not verified on Windows yet", Abort);
-#endif
     QString error;
     const bool forwarded = ApplicationCommandServer::sendCommandToRunningInstance(
         QStringLiteral("show"), 500, &error);

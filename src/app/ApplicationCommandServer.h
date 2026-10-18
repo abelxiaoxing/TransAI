@@ -28,8 +28,9 @@ public:
 signals:
     void commandReceived(QString command);
 
+public:
+    static QString serverName(); // TODO(diag): private again
 private:
-    static QString serverName();
     // True when something is already listening on `name` (used to refuse to
     // steal a live instance's socket, and to detect stale leftovers).
     static bool hasLiveInstance(const QString& name);
