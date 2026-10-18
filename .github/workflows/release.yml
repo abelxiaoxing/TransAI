@@ -1,0 +1,188 @@
+name: Release
+
+# Manual, on purpose: there is no version bump automation, and the artifacts are
+# built from whatever ref is selected in the "Run workflow" drop-down.
+#
+# The build steps mirror the `linux` / `windows` jobs in ci.yml (Qt install, model
+# fetch, ccache); keep them in sync when either changes.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version used for the artifact names (e.g. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+      create_release:
+        description: 'Also create a draft GitHub release from the artifacts'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxtst-dev libgl1-mesa-dev \
+            libxkbcommon-dev libdbus-1-dev libsecret-1-dev p7zip-full
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.9.*'
+          cache: true
+          archives: qtbase qtdeclarative icu
+
+      - name: Fetch bundled OCR models
+        run: ./scripts/fetch_ocr_models.sh
+
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-${{ github.job }}
+          max-size: 500M
+
+      - name: Configure & build
+        run: |
+          cmake -B build -D CMAKE_BUILD_TYPE=Release -D APP_VERSION=${{ inputs.tag }} \
+            -D CMAKE_C_COMPILER_LAUNCHER=ccache -D CMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build build -j$(nproc)
+
+      # Staged with the install rules, so the tarball carries bin/, the OCR
+      # models and the license texts exactly as `cmake --install` lays them out.
+      - name: Stage the install tree
+        run: |
+          name="TransAI-${{ inputs.tag }}-linux-x86_64"
+          cmake --install build --prefix "$PWD/stage/$name"
+          cat > "stage/$name/README.txt" <<'EOF'
+          TransAI - AI translation utility
+
+          Run: bin/TransAI
+
+          Requirements: a Qt 6.9 runtime (qt6-base, qt6-declarative). This tarball
+          does not bundle Qt; on a distribution that lacks it, install those
+          packages first (Debian/Ubuntu: qt6-base-dev qt6-declarative-dev).
+
+          OCR: the bundled PP-OCR models are in share/TransAI/ocr/models.
+          Third-party licenses: share/TransAI/licenses, see THIRD-PARTY-NOTICES.md
+          in the repository.
+          EOF
+          tar -czf "$name.tar.gz" -C stage "$name"
+          ls -l "$name.tar.gz"
+
+      - name: Upload tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-tarball
+          path: TransAI-*-linux-x86_64.tar.gz
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Qt (MinGW)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.9.*'
+          arch: win64_mingw
+          cache: true
+          archives: qtbase qtdeclarative
+          tools: 'tools_mingw1310'
+
+      - name: Require Qt's matching MinGW toolchain
+        shell: pwsh
+        run: |
+          $qtRoot = Split-Path (Split-Path $env:QT_ROOT_DIR)
+          $mingw = Get-ChildItem -Path (Join-Path $qtRoot 'Tools') -Directory -Filter 'mingw*_64' -ErrorAction SilentlyContinue |
+            ForEach-Object { Join-Path $_.FullName 'bin' } |
+            Where-Object { Test-Path (Join-Path $_ 'gcc.exe') } |
+            Sort-Object -Descending |
+            Select-Object -First 1
+          if (-not $mingw) {
+            throw "No Qt MinGW toolchain (Tools\mingw*_64\bin\gcc.exe) under $qtRoot"
+          }
+          $mingw | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          gcc --version
+
+      - name: Fetch bundled OCR models
+        shell: bash
+        run: |
+          export PATH="/c/Program Files/7-Zip:$PATH"
+          ./scripts/fetch_ocr_models.sh
+
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-${{ github.job }}
+          max-size: 500M
+
+      - name: Configure & build
+        run: |
+          cmake -B build -G "MinGW Makefiles" -D CMAKE_BUILD_TYPE=Release -D APP_VERSION=${{ inputs.tag }} `
+            -D CMAKE_C_COMPILER_LAUNCHER=ccache -D CMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build build -j4
+
+      - name: Package
+        shell: pwsh
+        run: |
+          ./scripts/windows-mingw-publish.ps1 `
+            -archiveName "TransAI-${{ inputs.tag }}-win64" `
+            -targetName TransAI.exe `
+            -Qt6_DIR $env:QT_ROOT_DIR
+
+      # The scripts refuse to package without models/license texts, but check the
+      # archive itself: this is what users download.
+      - name: Verify the archive contents
+        shell: pwsh
+        run: |
+          $zip = "TransAI-${{ inputs.tag }}-win64.zip"
+          if (-not (Test-Path $zip)) { throw "$zip was not produced" }
+          Expand-Archive $zip -DestinationPath verify -Force
+          $root = "verify/TransAI-${{ inputs.tag }}-win64"
+          foreach ($rel in @('TransAI.exe', 'ocr/models/ch_PP-OCRv3_det_infer.bin',
+                             'ocr/models/ch_PP-OCRv3_rec_infer.bin', 'ocr/models/ppocr_keys_v1.txt',
+                             'licenses/QHotkey-BSD-3-Clause.txt', 'licenses/ncnn-BSD-3-Clause.txt',
+                             'licenses/PP-OCR-Apache-2.0.txt')) {
+            if (-not (Test-Path (Join-Path $root $rel))) { throw "$rel missing from $zip" }
+          }
+          (Get-Item "$root/TransAI.exe").VersionInfo | Format-List FileVersion, ProductVersion
+
+      - name: Upload zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-zip
+          path: TransAI-*-win64.zip
+          if-no-files-found: error
+
+  # Draft only: a human still publishes it, and nothing here can overwrite an
+  # existing release (`gh release create` fails on a duplicate tag).
+  release:
+    needs: [linux, windows]
+    if: github.event.inputs.create_release == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -l dist
+          gh release create "${{ inputs.tag }}" --draft \
+            --title "TransAI ${{ inputs.tag }}" \
+            --generate-notes \
+            dist/*
