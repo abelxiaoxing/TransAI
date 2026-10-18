@@ -1,51 +1,47 @@
-#include <QGuiApplication>
+#include <QFile>
 #include <QImage>
-#include <QPainter>
 #include <QSignalSpy>
 #include <QtTest>
 
 #include "ocr/OcrEngine.h"
 #include "ocr/OcrModelLocator.h"
 
-// End-to-end coverage of the bundled RapidOCR backend: render a known image,
-// recognise it, and compare the text. Deliberately independent of any
-// screenshot/portal code so it exercises only "image in, text out".
+// End-to-end coverage of the bundled RapidOCR backend: feed a known screenshot
+// crop to the engine and compare the recognized text. Independent of any
+// screenshot/portal code, so it exercises only "image in, text out".
 //
-// The model files are not in git (13 MB of weights, see
+// The sample image is a committed fixture (tests/data/ocr_sample.png) rather
+// than text rendered at run time: QPainter would need a font database, which
+// the headless CI runners (notably the Windows offscreen platform) do not have,
+// and the whole test would then assert against a blank image.
+//
+// The model files are also not in git (13 MB of weights, see
 // scripts/fetch_ocr_models.sh): the test skips itself when they are absent, so
 // `ctest` stays green on a bare checkout while CI (which fetches them) gets the
 // real pipeline covered.
-class TestRapidOcr : public QObject {
+class TestRapidOcr : public QObject
+{
     Q_OBJECT
 
 private slots:
-    void recognizesRenderedText();
+    void recognizesFromImage();
     void reportsMissingModelsAsUnavailable();
 
 private:
-    static QImage renderText(const QString& text);
+    static QImage sample();
 };
 
-namespace {
-constexpr int kFontPixelSize = 40;
+QImage TestRapidOcr::sample()
+{
+    QImage image(QStringLiteral(TRANSAI_OCR_TEST_DATA_DIR "/ocr_sample.png"));
+    return image.convertToFormat(QImage::Format_RGB32);
 }
 
-QImage TestRapidOcr::renderText(const QString& text) {
-    QImage image(720, 120, QImage::Format_RGB32);
-    image.fill(Qt::white);
-    QPainter painter(&image);
-    // Default application font: Latin-only sample text, so no specific family
-    // (and no CJK font package) is required on any platform.
-    QFont font;
-    font.setPixelSize(kFontPixelSize);
-    painter.setFont(font);
-    painter.setPen(Qt::black);
-    painter.drawText(32, 78, text);
-    painter.end();
-    return image;
-}
+void TestRapidOcr::recognizesFromImage()
+{
+    const QImage image = sample();
+    QVERIFY2(!image.isNull(), "tests/data/ocr_sample.png is missing or unreadable");
 
-void TestRapidOcr::recognizesRenderedText() {
     std::unique_ptr<OcrEngine> engine = createRapidOcrEngine();
     QVERIFY(engine);
     if (!engine->isAvailable()) {
@@ -53,16 +49,14 @@ void TestRapidOcr::recognizesRenderedText() {
                              .arg(engine->unavailableReason())));
     }
 
-    // ASCII only: the recogniser is deterministic on clean rendered Latin text,
-    // while CJK output depends on the system CJK font actually being present.
-    const QString expected = QStringLiteral("TransAI OCR 2024");
     QSignalSpy recognizedSpy(engine.get(), &OcrEngine::recognized);
     QSignalSpy failedSpy(engine.get(), &OcrEngine::recognitionFailed);
 
-    engine->recognize(renderText(expected));
+    engine->recognize(image);
     QTRY_VERIFY_WITH_TIMEOUT(recognizedSpy.count() + failedSpy.count() >= 1, 30000);
-    // Report the engine's own message when it failed: a load problem (missing
-    // or unreadable models) must not look like a recognition-quality failure.
+
+    // Report the engine's own message when it failed: a model-loading problem
+    // must not look like a recognition-quality failure.
     QVERIFY2(failedSpy.isEmpty(),
              qPrintable(failedSpy.isEmpty() ? QString() : failedSpy.at(0).at(0).toString()));
     QCOMPARE(recognizedSpy.count(), 1);
@@ -78,7 +72,8 @@ void TestRapidOcr::recognizesRenderedText() {
     QVERIFY2(compact.contains(QStringLiteral("2024")), qPrintable(text));
 }
 
-void TestRapidOcr::reportsMissingModelsAsUnavailable() {
+void TestRapidOcr::reportsMissingModelsAsUnavailable()
+{
     // The environment override is authoritative, so pointing it at a
     // non-existent directory hides the real installation for the lifetime of
     // this test and exercises the unavailable contract end to end.
@@ -91,7 +86,7 @@ void TestRapidOcr::reportsMissingModelsAsUnavailable() {
     QVERIFY(!engine->unavailableReason().isEmpty());
 
     QSignalSpy failedSpy(engine.get(), &OcrEngine::recognitionFailed);
-    engine->recognize(renderText(QStringLiteral("anything")));
+    engine->recognize(sample());
     QTRY_COMPARE(failedSpy.count(), 1);
     QCOMPARE(failedSpy.at(0).at(0).toString(), engine->unavailableReason());
 
@@ -102,5 +97,7 @@ void TestRapidOcr::reportsMissingModelsAsUnavailable() {
     }
 }
 
-QTEST_MAIN(TestRapidOcr)
+// No GUI: QImage decoding needs a QCoreApplication only, so this runs on every
+// CI runner without a platform plugin or a font database.
+QTEST_GUILESS_MAIN(TestRapidOcr)
 #include "tst_rapidocr.moc"

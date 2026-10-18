@@ -122,12 +122,10 @@ if(TRANSAI_OCR_BACKEND_ACTIVE STREQUAL "ncnn")
     )
     target_include_directories(tst_rapidocr PRIVATE ${CMAKE_SOURCE_DIR}/src)
     target_compile_definitions(tst_rapidocr PRIVATE
-        TRANSAI_OCR_SOURCE_MODEL_DIR="${TRANSAI_OCR_MODEL_DIR}")
+        TRANSAI_OCR_SOURCE_MODEL_DIR="${TRANSAI_OCR_MODEL_DIR}"
+        TRANSAI_OCR_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
     target_link_libraries(tst_rapidocr PRIVATE Qt6::Gui Qt6::Test Qt6::Concurrent ncnn)
     add_test(NAME tst_rapidocr COMMAND tst_rapidocr)
-    # QPainter needs a font database, which needs a platform plugin.
-    set_tests_properties(tst_rapidocr PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
 add_executable(tst_networkerrormapper
