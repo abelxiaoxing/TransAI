@@ -1,7 +1,7 @@
 // VERSIONINFO for the Windows executable, so Explorer and the file properties
 // dialog show the release version instead of an empty tab.
 //
-// Configured by CMake (@PROJECT_VERSION@) into the build directory: an .rc file
+// Configured by CMake (@APP_VERSION@) into the build directory: an .rc file
 // needs literal numbers, compile definitions do not work here. The constants
 // are spelled out instead of including <windows.h> because windres does not
 // reliably find that header.
@@ -12,8 +12,8 @@
 #define VS_FFI_FILEFLAGSMASK 0x0000003FL
 
 VS_VERSION_INFO VERSIONINFO
-    FILEVERSION    @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
-    PRODUCTVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+    FILEVERSION    @TRANSAI_RC_MAJOR@,@TRANSAI_RC_MINOR@,@TRANSAI_RC_PATCH@,0
+    PRODUCTVERSION @TRANSAI_RC_MAJOR@,@TRANSAI_RC_MINOR@,@TRANSAI_RC_PATCH@,0
     FILEFLAGSMASK  VS_FFI_FILEFLAGSMASK
     FILEFLAGS      0x0L
     FILEOS         VOS_NT_WINDOWS32
@@ -25,11 +25,11 @@ BEGIN
         BLOCK "040904b0"
         BEGIN
             VALUE "FileDescription",  "AI translation utility"
-            VALUE "FileVersion",      "@PROJECT_VERSION@"
+            VALUE "FileVersion",      "@APP_VERSION@"
             VALUE "InternalName",     "TransAI"
             VALUE "OriginalFilename", "TransAI.exe"
             VALUE "ProductName",      "TransAI"
-            VALUE "ProductVersion",   "@PROJECT_VERSION@"
+            VALUE "ProductVersion",   "@APP_VERSION@"
         END
     END
     BLOCK "VarFileInfo"

@@ -16,6 +16,24 @@ add_compile_definitions(APP_VERSION="${APP_VERSION}")
 
 message(STATUS "APP_VERSION: ${APP_VERSION}")
 
+# Windows VERSIONINFO needs four integers, and APP_VERSION may be a release tag
+# such as "v1.0.0-rc1": drop the leading "v" and any suffix, fall back to the
+# project version when that leaves nothing usable.
+string(REGEX REPLACE "^v" "" TRANSAI_RC_VERSION "${APP_VERSION}")
+string(REGEX MATCH "^([0-9]+)\\.([0-9]+)\\.?([0-9]*)" _ "${TRANSAI_RC_VERSION}")
+if(CMAKE_MATCH_1)
+    set(TRANSAI_RC_MAJOR "${CMAKE_MATCH_1}")
+    set(TRANSAI_RC_MINOR "${CMAKE_MATCH_2}")
+    set(TRANSAI_RC_PATCH "${CMAKE_MATCH_3}")
+    if(TRANSAI_RC_PATCH STREQUAL "")
+        set(TRANSAI_RC_PATCH "0")
+    endif()
+else()
+    set(TRANSAI_RC_MAJOR "${PROJECT_VERSION_MAJOR}")
+    set(TRANSAI_RC_MINOR "${PROJECT_VERSION_MINOR}")
+    set(TRANSAI_RC_PATCH "${PROJECT_VERSION_PATCH}")
+endif()
+
 if (CMAKE_SYSTEM_NAME MATCHES "Linux"
     AND NOT DEFINED Qt6_DIR AND NOT DEFINED CMAKE_PREFIX_PATH)
     # Auto-detect a system Qt6 via qmake. Explicitly passed -DQt6_DIR or
