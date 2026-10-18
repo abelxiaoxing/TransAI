@@ -13,8 +13,15 @@ class ApplicationCommandServer : public QObject
 
 public:
     explicit ApplicationCommandServer(QObject* parent = nullptr);
+    ~ApplicationCommandServer() override;
 
-    static bool sendCommandToRunningInstance(const QString& command, int timeoutMs = 500);
+    // Forwards `command` to an already running instance. Returns false when
+    // nobody accepted it (no live instance, pipe/socket refused the write, or
+    // the write did not complete in time); `error` receives a human-readable
+    // reason that is meant to end up in the log, since the failure path is
+    // otherwise silent.
+    static bool sendCommandToRunningInstance(const QString& command, int timeoutMs = 500,
+                                             QString* error = nullptr);
 
     bool start();
     QString errorString() const;
