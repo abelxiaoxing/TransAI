@@ -33,12 +33,23 @@ jobs:
       - name: Fetch bundled OCR models
         run: ./scripts/fetch_ocr_models.sh
 
-      # The first configure builds ncnn through FetchContent (CPU-only, no
-      # Vulkan); ~5-7 min on a fresh cache.
+      # ncnn is built from source through FetchContent on every clean runner
+      # ("CPU-only, no Vulkan") and dominates the build time. ccache is
+      # content-addressed, so it survives a fresh clone (a build-tree cache
+      # would not: the checkout's mtimes are always newer than restored
+      # objects) and repays its setup cost from the second run on.
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-${{ github.job }}
+          max-size: 500M
+
       - name: Configure & build
         run: |
-          cmake -B build -D CMAKE_BUILD_TYPE=Release
+          cmake -B build -D CMAKE_BUILD_TYPE=Release \
+            -D CMAKE_C_COMPILER_LAUNCHER=ccache -D CMAKE_CXX_COMPILER_LAUNCHER=ccache
           cmake --build build -j$(nproc)
+          ccache --show-stats --verbose | head -20
 
       - name: Unit tests
         run: ctest --test-dir build --output-on-failure
@@ -96,12 +107,22 @@ jobs:
       - name: Fetch bundled OCR models
         run: ./scripts/fetch_ocr_models.sh
 
+      # Instrumented objects are large, so this job gets its own (bigger)
+      # ccache: the sanitizer build dominated the job at ~14 min before.
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-${{ github.job }}
+          max-size: 1500M
+
       - name: Configure & build with ASan + UBSan
         run: |
           cmake -B build-asan -D CMAKE_BUILD_TYPE=RelWithDebInfo \
+            -D CMAKE_C_COMPILER_LAUNCHER=ccache -D CMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -D CMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
             -D CMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
           cmake --build build-asan -j$(nproc)
+          ccache --show-stats --verbose | head -20
 
       - name: Unit tests under sanitizers
         env:
@@ -160,10 +181,18 @@ jobs:
           export PATH="/c/Program Files/7-Zip:$PATH"
           ./scripts/fetch_ocr_models.sh
 
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-${{ github.job }}
+          max-size: 500M
+
       - name: Configure & build
         run: |
-          cmake -B build -G "MinGW Makefiles" -D CMAKE_BUILD_TYPE=Release
+          cmake -B build -G "MinGW Makefiles" -D CMAKE_BUILD_TYPE=Release `
+            -D CMAKE_C_COMPILER_LAUNCHER=ccache -D CMAKE_CXX_COMPILER_LAUNCHER=ccache
           cmake --build build -j4
+          ccache --show-stats --verbose | Select-Object -First 20
 
       - name: Unit tests
         run: ctest --test-dir build --output-on-failure
