@@ -75,5 +75,7 @@ void TestShortcutConflict::emptyRegisteredValuesAreIgnored() {
     QCOMPARE(findConflictingAction(registered, "translateScreenshot", "Ctrl+Alt+T"), QString());
 }
 
-QTEST_MAIN(TestShortcutConflict)
+// No GUI: a QCoreApplication is enough, and it keeps the suite runnable on a
+// headless CI runner (no platform plugin to load).
+QTEST_GUILESS_MAIN(TestShortcutConflict)
 #include "tst_shortcutconflict.moc"
