@@ -226,6 +226,23 @@ scripts/                            # Windows build/publish scripts
   PP-OCR models Apache-2.0) and what a release artifact must ship. Update it
   whenever a dependency is added or its pin changes.
 
+## Release Engineering
+
+- Version lives in `project(TransAI VERSION ...)` (`CMakeLists.txt`, currently
+  1.0.0); `-D APP_VERSION=<tag>` overrides it per build and feeds
+  `QApplication::applicationVersion()` (`TransAI --version`) plus the Windows
+  VERSIONINFO generated from `res/logo/version.rc.in`
+- `.github/workflows/release.yml` (`workflow_dispatch`, inputs `tag` and
+  `create_release`) builds the Linux tarball (via `cmake --install` staging) and
+  the Windows zip (via `scripts/windows-mingw-publish.ps1`), verifies the archive
+  contents, uploads artifacts, and only creates a **draft** GitHub release when
+  `create_release` is true
+- `LICENSES/` holds the third-party license texts that ship as `licenses/` in
+  every artifact (Qt LGPL, QHotkey/ncnn BSD-3, PP-OCR Apache-2.0). Adding a
+  dependency means adding its text here **and** updating
+  `THIRD-PARTY-NOTICES.md`; the linux CI job fails on an empty text file
+- `CHANGELOG.md` is written for users; add an entry per release tag
+
 ## Documentation References
 
 - `docs/phase-1-architecture-refactor.md` - Module split blueprint (implemented)
