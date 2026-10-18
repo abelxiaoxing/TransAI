@@ -29,10 +29,20 @@ Write-Host "scriptDir" $scriptDir
 function Main() {
 
     New-Item -ItemType Directory $archiveName
-    # 拷贝exe
-    Copy-Item build\* $archiveName\
+    # 只拷产物：Copy-Item build\* 会把 CMakeFiles/、_deps/（ncnn 源码与中间对象）
+    # 一起打进包，实测一个包里大半体积是这些。（发布流程实测 44MB → 修完后 ~30MB）
+    $exe = @((Join-Path 'build' $targetName), (Join-Path 'build' "$targetName.exe")) |
+        Where-Object { Test-Path $_ } | Select-Object -First 1
+    if (-not $exe) {
+        throw ("no build output '{0}' under build\; run the Release build first" -f $targetName)
+    }
+    Copy-Item $exe $archiveName\
+    Get-ChildItem build -Filter *.dll -File | Copy-Item -Destination $archiveName
     # 拷贝依赖
-    windeployqt --qmldir . --plugindir $archiveName\plugins --no-translations --compiler-runtime $archiveName\$targetName
+    # windeployqt 需要具体文件路径：用解析出来的 exe 文件名，这样 -targetName
+    # 传 "TransAI" 或 "TransAI.exe" 都能工作。
+    $exeLeaf = Split-Path $exe -Leaf
+    windeployqt --qmldir . --plugindir $archiveName\plugins --no-translations --compiler-runtime (Join-Path $archiveName $exeLeaf)
     # 删除不必要的文件
     $excludeList = @("*.qmlc", "*.ilk", "*.exp", "*.lib", "*.pdb")
     Remove-Item -Path $archiveName -Include $excludeList -Recurse -Force

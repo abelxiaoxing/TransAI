@@ -319,6 +319,9 @@ jobs:
                              'pkg-ok\licenses\PP-OCR-Apache-2.0.txt')) {
             if (-not (Test-Path (Join-Path expanded-ok $rel))) { throw "$rel missing from the archive" }
           }
+          foreach ($junk in @('pkg-ok\CMakeCache.txt', 'pkg-ok\CMakeFiles', 'pkg-ok\_deps')) {
+            if (Test-Path (Join-Path expanded-ok $junk)) { throw "$junk leaked into the archive" }
+          }
 
       - name: Package without models (must abort)
         shell: pwsh
