@@ -168,24 +168,27 @@ jobs:
       - name: Unit tests
         run: ctest --test-dir build --output-on-failure
 
-      # On Windows a test process can die before QTest prints anything, leaving
-      # ctest with an empty failure report. Dump the per-test log, the platform
-      # plugins, direct runs and the crash events from the Application log.
+      # QtTest output does not reach ctest's pipes on the Windows MinGW build
+      # (empty "<end of output>" even for passing tests), so a failure there
+      # arrives with no explanation. Re-run every test through QtTest's file
+      # logger and print the captured text.
       - name: Diagnose failing tests
         if: failure()
         shell: pwsh
         run: |
           Write-Host '--- LastTest.log (tail) ---'
           if (Test-Path build\Testing\Temporary\LastTest.log) {
-            Get-Content build\Testing\Temporary\LastTest.log -Tail 300
+            Get-Content build\Testing\Temporary\LastTest.log -Tail 40
           }
-          Write-Host '--- platform plugins ---'
-          Get-ChildItem "$env:QT_ROOT_DIR\plugins\platforms" -ErrorAction SilentlyContinue
-          foreach ($t in @('tst_rapidocr','tst_ocrengine','tst_applicationcommandserver','tst_windowdismiss')) {
-            Write-Host "--- direct run: $t ---"
-            $env:QT_QPA_PLATFORM = 'offscreen'
-            & "build\tests\$t.exe" 2>&1 | Select-Object -First 40
+          $env:QT_QPA_PLATFORM = 'offscreen'
+          $env:QT_ASSUME_STDERR_HAS_CONSOLE = '1'
+          foreach ($exe in Get-ChildItem build\tests\tst_*.exe) {
+            $name = $exe.BaseName
+            $out = Join-Path $env:RUNNER_TEMP "$name.txt"
+            Write-Host "--- $name ---"
+            & $exe.FullName -o "$out,txt" | Out-Null
             Write-Host "exit=$LASTEXITCODE"
+            if (Test-Path $out) { Get-Content $out -Tail 60 }
           }
           Write-Host '--- Application event log (crashes) ---'
           Get-WinEvent -LogName Application -MaxEvents 40 -ErrorAction SilentlyContinue |

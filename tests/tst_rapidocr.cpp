@@ -34,7 +34,9 @@ QImage TestRapidOcr::renderText(const QString& text) {
     QImage image(720, 120, QImage::Format_RGB32);
     image.fill(Qt::white);
     QPainter painter(&image);
-    QFont font(QStringLiteral("Noto Sans CJK SC"));
+    // Default application font: Latin-only sample text, so no specific family
+    // (and no CJK font package) is required on any platform.
+    QFont font;
     font.setPixelSize(kFontPixelSize);
     painter.setFont(font);
     painter.setPen(Qt::black);
@@ -47,7 +49,8 @@ void TestRapidOcr::recognizesRenderedText() {
     std::unique_ptr<OcrEngine> engine = createRapidOcrEngine();
     QVERIFY(engine);
     if (!engine->isAvailable()) {
-        QSKIP("bundled OCR models not installed (run scripts/fetch_ocr_models.sh)");
+        QSKIP(qPrintable(QStringLiteral("unavailable: %1 (run scripts/fetch_ocr_models.sh)")
+                             .arg(engine->unavailableReason())));
     }
 
     // ASCII only: the recogniser is deterministic on clean rendered Latin text,
@@ -58,7 +61,10 @@ void TestRapidOcr::recognizesRenderedText() {
 
     engine->recognize(renderText(expected));
     QTRY_VERIFY_WITH_TIMEOUT(recognizedSpy.count() + failedSpy.count() >= 1, 30000);
-    QCOMPARE(failedSpy.count(), 0);
+    // Report the engine's own message when it failed: a load problem (missing
+    // or unreadable models) must not look like a recognition-quality failure.
+    QVERIFY2(failedSpy.isEmpty(),
+             qPrintable(failedSpy.isEmpty() ? QString() : failedSpy.at(0).at(0).toString()));
     QCOMPARE(recognizedSpy.count(), 1);
 
     const QString text = recognizedSpy.at(0).at(0).toString();

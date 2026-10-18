@@ -10,6 +10,7 @@
 #include <QBuffer>
 #include <QDebug>
 #include <QProcess>
+#include <QStandardPaths>
 
 namespace OcrLanguageSelection {
 
@@ -128,7 +129,7 @@ public:
         }
         args << QStringLiteral("--psm") << QStringLiteral("6");
 
-        m_process->start(QStringLiteral("tesseract"), args);
+        m_process->start(m_program, args);
         if (!m_process->waitForStarted(1500)) {
             m_process->deleteLater();
             m_process = nullptr;
@@ -167,12 +168,26 @@ private:
         if (available && !languages.isEmpty()) {
             qInfo() << "OCR languages:" << languages;
         }
-        // Emitted exactly once: nothing else can change availability afterwards.
-        emit availableChanged();
+        // Emitted exactly once, and always through the event loop: on Windows a
+        // missing binary fails synchronously inside the constructor, and a
+        // signal emitted there reaches nobody (observers connect afterwards).
+        // The property itself is already correct, so QML bindings see it either
+        // way; this only guarantees the change notification arrives.
+        QMetaObject::invokeMethod(
+            this, [this]() { emit availableChanged(); }, Qt::QueuedConnection);
     }
 
     void startAsyncProbe()
     {
+        // Resolve the binary ourselves: QProcess' PATH search on Windows made a
+        // *missing* tesseract take tens of seconds before reporting
+        // FailedToStart.
+        m_program = QStandardPaths::findExecutable(QStringLiteral("tesseract"));
+        if (m_program.isEmpty()) {
+            setProbeResult(false, QString());
+            return;
+        }
+
         auto* versionProbe = new QProcess(this);
         connect(versionProbe, &QProcess::errorOccurred, this,
                 [this, versionProbe](QProcess::ProcessError error) {
@@ -195,7 +210,7 @@ private:
                     }
                     startAsyncLanguageProbe();
                 });
-        versionProbe->start(QStringLiteral("tesseract"), { QStringLiteral("--version") });
+        versionProbe->start(m_program, { QStringLiteral("--version") });
     }
 
     void startAsyncLanguageProbe()
@@ -220,7 +235,7 @@ private:
                               OcrLanguageSelection::parseListLangsOutput(QString::fromUtf8(out)))
                         : QString());
                 });
-        langsProbe->start(QStringLiteral("tesseract"), { QStringLiteral("--list-langs") });
+        langsProbe->start(m_program, { QStringLiteral("--list-langs") });
     }
 
     // Only used when recognize() arrives before the async probe completed.
@@ -229,15 +244,23 @@ private:
         if (m_probeDone) {
             return;
         }
+        if (m_program.isEmpty()) {
+            m_program = QStandardPaths::findExecutable(QStringLiteral("tesseract"));
+        }
+        if (m_program.isEmpty()) {
+            setProbeResult(false, QString());
+            return;
+        }
+
         QProcess version;
-        version.start(QStringLiteral("tesseract"), { QStringLiteral("--version") });
+        version.start(m_program, { QStringLiteral("--version") });
         if (!version.waitForFinished(kVersionProbeTimeoutMs) || version.exitCode() != 0) {
             setProbeResult(false, QString());
             return;
         }
 
         QProcess langs;
-        langs.start(QStringLiteral("tesseract"), { QStringLiteral("--list-langs") });
+        langs.start(m_program, { QStringLiteral("--list-langs") });
         QString languages;
         if (langs.waitForFinished(kLanguageProbeTimeoutMs) && langs.exitCode() == 0) {
             languages = OcrLanguageSelection::chooseLanguages(
@@ -248,6 +271,7 @@ private:
 
     bool m_available = false;
     bool m_probeDone = false;
+    QString m_program;
     QString m_languages;
     QProcess* m_process = nullptr;
 };
