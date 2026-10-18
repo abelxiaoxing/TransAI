@@ -15,16 +15,27 @@ class FakeSecretStore : public SecretStore
 public:
     bool available = true;
     QHash<QString, QString> values;
+    // Counts how often the keychain is touched: saveConfig() runs on every
+    // settings edit, so unchanged keys must not round-trip to the backend.
+    int writeCount = 0;
+    int readCount = 0;
+    int removeCount = 0;
 
     bool isAvailable() override { return available; }
-    QString read(const QString& key) override { return values.value(key); }
+    QString read(const QString& key) override
+    {
+        ++readCount;
+        return values.value(key);
+    }
     bool write(const QString& key, const QString& value) override
     {
+        ++writeCount;
         values.insert(key, value);
         return true;
     }
     bool remove(const QString& key) override
     {
+        ++removeCount;
         values.remove(key);
         return true;
     }
@@ -44,13 +55,17 @@ private slots:
 
     void defaultsForFreshConfig();
     void targetLanguageRoundTrip();
-    void translationModeRoundTrip();
-    void invalidValuesFallBackToDefaults();
+    void unknownLanguageNameIsPreserved();
     void secretStoreWinsOverConfigPlaintext();
     void plaintextKeyMigratedAndCleared();
     void saveWritesStoreAndDropsPlaintext();
     void unavailableStoreKeepsPlaintext();
     void emptyKeyRemovesFromStore();
+    void unchangedKeySkipsKeychainWrite();
+    void failedKeychainWriteIsRetriedOnNextSave();
+    void legacyTopLevelKeysAreMigrated();
+    void newerConfigVersionIsTolerated();
+    void windowGeometryIsClampedToSharedBounds();
 
 private:
     static QString configPath()
@@ -70,9 +85,10 @@ private:
     {
         QDir().mkpath(QFileInfo(configPath()).absolutePath());
         QFile file(configPath());
-        file.open(QIODevice::WriteOnly | QIODevice::Truncate);
-        file.write(json);
-        file.close();
+        if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            file.write(json);
+            file.close();
+        }
     }
 };
 
@@ -90,7 +106,6 @@ void TestSetting::defaultsForFreshConfig()
 {
     Setting setting;
     QCOMPARE(setting.targetLanguage(), QString());
-    QCOMPARE(setting.translationMode(), 0);
 }
 
 void TestSetting::targetLanguageRoundTrip()
@@ -106,45 +121,19 @@ void TestSetting::targetLanguageRoundTrip()
     }
 }
 
-void TestSetting::translationModeRoundTrip()
+void TestSetting::unknownLanguageNameIsPreserved()
 {
-    {
-        Setting setting;
-        setting.translationMode(2);
-        setting.updateConfig();
-    }
-    {
-        const Setting setting;
-        QCOMPARE(setting.translationMode(), 2);
-    }
-}
-
-void TestSetting::invalidValuesFallBackToDefaults()
-{
-    // Hand-written config with an out-of-range translationMode; the enum has    // exactly 0..2, anything else must clamp back to Translate (0).
+    // Unknown language names are preserved verbatim (the QML language list
+    // owns the fallback), but the value must round-trip as stored.
     QDir().mkpath(QFileInfo(configPath()).absolutePath());
     {
         QFile file(configPath());
         QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
-        file.write(R"({"configVersion": 2, "translationMode": 7, "targetLanguage": "Klingon"})");
+        file.write(R"({"configVersion": 2, "targetLanguage": "Klingon"})");
     }
     {
         const Setting setting;
-        QCOMPARE(setting.translationMode(), 0);
-        // Unknown language names are preserved verbatim (the QML language
-        // list owns the fallback), but the value must round-trip as stored.
         QCOMPARE(setting.targetLanguage(), QStringLiteral("Klingon"));
-    }
-
-    // Negative mode values clamp too.
-    {
-        QFile file(configPath());
-        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
-        file.write(R"({"configVersion": 2, "translationMode": -1})");
-    }
-    {
-        const Setting setting;
-        QCOMPARE(setting.translationMode(), 0);
     }
 }
 
@@ -241,6 +230,103 @@ void TestSetting::emptyKeyRemovesFromStore()
     setting.updateConfig();
     QVERIFY(!store->values.contains(QStringLiteral("openaiApiKey")));
     QCOMPARE(readConfig().value(QStringLiteral("openaiApiKey")).toString(), QString());
+}
+
+void TestSetting::unchangedKeySkipsKeychainWrite()
+{
+    auto fake = std::make_unique<FakeSecretStore>();
+    FakeSecretStore* store = fake.get();
+    Setting setting(nullptr, std::move(fake));
+
+    setting.openaiApiKey(QStringLiteral("sk-stable"));
+    setting.updateConfig();
+    QCOMPARE(store->writeCount, 1);
+
+    // Language/geometry edits all funnel through updateConfig(); none of them
+    // may re-write an unchanged secret.
+    for (int i = 0; i < 5; ++i) {
+        setting.targetLanguage(QStringLiteral("English"));
+        setting.updateConfig();
+        setting.windowWidth(900 + i);
+        setting.updateConfig();
+    }
+    QCOMPARE(store->writeCount, 1);
+    QCOMPARE(store->removeCount, 0);
+    QVERIFY(setting.apiKeyStoredSecurely());
+}
+
+void TestSetting::failedKeychainWriteIsRetriedOnNextSave()
+{
+    auto fake = std::make_unique<FakeSecretStore>();
+    FakeSecretStore* store = fake.get();
+    Setting setting(nullptr, std::move(fake));
+
+    // Store becomes unavailable mid-session: the key falls back to plaintext,
+    // is not marked as stored, and is retried (not silently skipped) later.
+    store->available = false;
+    setting.openaiApiKey(QStringLiteral("sk-retry"));
+    setting.updateConfig();
+    QVERIFY(!setting.apiKeyStoredSecurely());
+    QCOMPARE(readConfig().value(QStringLiteral("openaiApiKey")).toString(), QStringLiteral("sk-retry"));
+
+    store->available = true;
+    setting.updateConfig();
+    QVERIFY(setting.apiKeyStoredSecurely());
+    QCOMPARE(store->values.value(QStringLiteral("openaiApiKey")), QStringLiteral("sk-retry"));
+    QCOMPARE(readConfig().value(QStringLiteral("openaiApiKey")).toString(), QString());
+}
+
+void TestSetting::legacyTopLevelKeysAreMigrated()
+{
+    // Pre-per-provider config (no configVersion): the top-level keys belong to
+    // the OpenAI-compatible provider and must be lifted on load.
+    writeConfig(R"({
+        "provider": "openai",
+        "apiServer": "https://legacy.example.com",
+        "apiKey": "sk-legacy",
+        "model": "legacy-model"
+    })");
+
+    const Setting setting;
+    QCOMPARE(setting.openaiApiServer(), QStringLiteral("https://legacy.example.com"));
+    QCOMPARE(setting.openaiApiKey(), QStringLiteral("sk-legacy"));
+    QCOMPARE(setting.openaiModel(), QStringLiteral("legacy-model"));
+    // Version-2 keys win over the legacy leftovers.
+    QCOMPARE(setting.apiServer(), QStringLiteral("https://legacy.example.com"));
+}
+
+void TestSetting::newerConfigVersionIsTolerated()
+{
+    // A config written by a future release must still load (forward compatible
+    // for the keys this version knows about) instead of being discarded.
+    writeConfig(R"({"configVersion": 99, "openaiModel": "future-model", "ollamaModel": "llama3"})");
+
+    const Setting setting;
+    QCOMPARE(setting.openaiModel(), QStringLiteral("future-model"));
+    QCOMPARE(setting.ollamaModel(), QStringLiteral("llama3"));
+}
+
+void TestSetting::windowGeometryIsClampedToSharedBounds()
+{
+    // Values below the minimum / above the maximum are treated as "not set".
+    writeConfig(R"({"configVersion": 2, "windowWidth": 100, "windowHeight": 100000})");
+    {
+        const Setting setting;
+        QCOMPARE(setting.windowWidth(), 0);
+        QCOMPARE(setting.windowHeight(), 0);
+    }
+
+    writeConfig(R"({"configVersion": 2, "windowWidth": 800, "windowHeight": 900})");
+    {
+        const Setting setting;
+        QCOMPARE(setting.windowWidth(), 800);
+        QCOMPARE(setting.windowHeight(), 900);
+        // QML sizes itself from these; they must stay inside the clamps.
+        QVERIFY(setting.defaultWindowWidth() >= setting.minWindowWidth());
+        QVERIFY(setting.defaultWindowWidth() <= setting.maxWindowWidth());
+        QVERIFY(setting.defaultWindowHeight() >= setting.minWindowHeight());
+        QVERIFY(setting.defaultWindowHeight() <= setting.maxWindowHeight());
+    }
 }
 
 QTEST_MAIN(TestSetting)

@@ -6,6 +6,8 @@
 #include <QNetworkReply>
 #include <QStringList>
 
+class QTimer;
+
 class ModelDiscoveryService : public QObject
 {
     Q_OBJECT
@@ -36,6 +38,9 @@ private:
 
     QNetworkAccessManager* m_networkManager;
     QNetworkReply* m_reply;
+    // Absolute cap per detection (the 15s transfer timeout only covers
+    // inactivity, so a slow-but-steady server could keep it alive forever).
+    QTimer* m_overallTimeout;
     QStringList m_availableModels;
     bool m_isDetecting;
     QString m_error;

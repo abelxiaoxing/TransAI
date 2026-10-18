@@ -26,6 +26,10 @@ Rectangle {
     readonly property real cornerRadius: 10
 
     property string shortcut: ""
+    // Action id passed to the registrar (GlobalShortcutManager slot).
+    property string actionId: ""
+    // Registrar contract: setShortcut(actionId, shortcut) -> bool, and a
+    // `lastError` string carrying the reason of a rejected attempt.
     property QtObject registrar: null
     property string errorText: ""
     property string beforeRecording: ""
@@ -86,10 +90,10 @@ Rectangle {
             recordingAccepted = false
             errorText = ""
             if (beforeRecording.length > 0 && registrar !== null) {
-                registrar.setShortcut("")
+                registrar.setShortcut(actionId, "")
             }
         } else if (!recordingAccepted && beforeRecording.length > 0 && registrar !== null) {
-            registrar.setShortcut(beforeRecording)
+            registrar.setShortcut(actionId, beforeRecording)
         }
     }
 
@@ -167,10 +171,15 @@ Rectangle {
 
         var shortcut = shortcutFromEvent(event)
         if (shortcut.length > 0) {
-            if (recorder.registrar !== null && recorder.registrar.setShortcut(shortcut) === false) {
-                recorder.errorText = I18n.t("Couldn't register '%1'. It may be reserved by the system or another app.", shortcut)
+            if (recorder.registrar !== null && recorder.registrar.setShortcut(recorder.actionId, shortcut) === false) {
+                // Prefer the registration funnel's reason (fixed, translatable
+                // strings such as "already assigned to …"); fall back to the
+                // generic wording when it has none.
+                var reason = recorder.registrar.lastError !== undefined ? recorder.registrar.lastError : ""
+                recorder.errorText = reason.length > 0 ? reason
+                    : I18n.t("Couldn't register '%1'. It may be reserved by the system or another app.", shortcut)
                 if (recorder.beforeRecording.length > 0) {
-                    recorder.registrar.setShortcut(recorder.beforeRecording)
+                    recorder.registrar.setShortcut(recorder.actionId, recorder.beforeRecording)
                 }
                 recorder.focus = false
                 event.accepted = true
@@ -213,7 +222,7 @@ Rectangle {
             cursorShape: Qt.PointingHandCursor
             onClicked: {
                 if (recorder.registrar !== null) {
-                    recorder.registrar.setShortcut("")
+                    recorder.registrar.setShortcut(recorder.actionId, "")
                 }
                 recorder.errorText = ""
                 recorder.shortcut = ""

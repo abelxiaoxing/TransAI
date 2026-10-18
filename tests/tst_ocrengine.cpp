@@ -1,3 +1,5 @@
+#include <QSignalSpy>
+#include <QStandardPaths>
 #include <QtTest>
 
 #include "ocr/OcrEngine.h"
@@ -15,6 +17,7 @@ private slots:
     void parseListLangsHandlesEmpty();
     void chooseLanguagesPrefersChinesePlusEnglish();
     void chooseLanguagesFallsBack();
+    void availabilityIsProbedOffTheStartupPath();
 };
 
 void TestOcrEngine::parseListLangsSkipsHeaderAndOsd()
@@ -50,6 +53,32 @@ void TestOcrEngine::chooseLanguagesFallsBack()
     QCOMPARE(OcrLanguageSelection::chooseLanguages({ "eng", "jpn" }), QStringLiteral("eng"));
     QCOMPARE(OcrLanguageSelection::chooseLanguages({ "jpn", "deu" }), QStringLiteral("jpn"));
     QCOMPARE(OcrLanguageSelection::chooseLanguages({}), QString());
+}
+
+// The constructor must not block on `tesseract --version` / `--list-langs`;
+// availability is published asynchronously through availableChanged() and must
+// still match whether the binary exists.
+void TestOcrEngine::availabilityIsProbedOffTheStartupPath()
+{
+    QElapsedTimer elapsed;
+    elapsed.start();
+    std::unique_ptr<OcrEngine> engine = createTesseractOcrEngine();
+    QVERIFY(engine);
+    // Constructing the engine only *starts* the probe: no multi-second stall.
+    QVERIFY2(elapsed.elapsed() < 1000, qPrintable(QString::number(elapsed.elapsed())));
+
+    QSignalSpy availabilitySpy(engine.get(), &OcrEngine::availableChanged);
+    QTRY_VERIFY_WITH_TIMEOUT(availabilitySpy.count() == 1, 15000);
+
+    // The probe result must reflect reality (both branches are fine: CI may or
+    // may not ship a tesseract binary).
+    const bool hasTesseract = !QStandardPaths::findExecutable(QStringLiteral("tesseract")).isEmpty();
+    QCOMPARE(engine->isAvailable(), hasTesseract);
+
+    // Exactly one notification: a second one would mean a duplicate probe
+    // completed after the fallback.
+    QTest::qWait(200);
+    QCOMPARE(availabilitySpy.count(), 1);
 }
 
 QTEST_GUILESS_MAIN(TestOcrEngine)

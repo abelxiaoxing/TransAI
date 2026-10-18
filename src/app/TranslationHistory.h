@@ -35,7 +35,16 @@ public:
     Q_INVOKABLE void addEntry(const QString& type, const QString& source,
                               const QString& result, const QString& targetLanguage);
     Q_INVOKABLE void clear();
-    Q_INVOKABLE void removeAt(int index);
+
+    // Cache lookup for repeated requests: returns the stored result whose
+    // source text (compared after trimming) and target language are identical,
+    // or an empty string when nothing matches. The app-owned history is the
+    // only cache there is — a repeated sentence (typed twice, or selected and
+    // translated again via the hotkey) is answered without a network request
+    // and without adding a duplicate entry. Screenshot entries carry no source
+    // text, so they never match.
+    Q_INVOKABLE QString findCachedResult(const QString& source,
+                                        const QString& targetLanguage) const;
 
     // Storage-limit constant, exposed for tests and future UI hints.
     static constexpr int maxEntries() { return 100; }

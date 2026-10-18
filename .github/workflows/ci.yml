@@ -15,7 +15,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libx11-dev libxtst-dev libgl1-mesa-dev \
-            libxkbcommon-dev libdbus-1-dev libsecret-1-dev
+            libxkbcommon-dev libdbus-1-dev libsecret-1-dev p7zip-full
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
@@ -28,6 +28,13 @@ jobs:
           # against (Ubuntu 24.04 ships ICU 74, Qt 6.9 wants .73).
           archives: qtbase qtdeclarative icu
 
+      # The bundled OCR backend needs its PP-OCR weights; they are not in git
+      # (13 MB of binaries). Without them the end-to-end OCR test skips itself.
+      - name: Fetch bundled OCR models
+        run: ./scripts/fetch_ocr_models.sh
+
+      # The first configure builds ncnn through FetchContent (CPU-only, no
+      # Vulkan); ~5-7 min on a fresh cache.
       - name: Configure & build
         run: |
           cmake -B build -D CMAKE_BUILD_TYPE=Release
@@ -47,11 +54,60 @@ jobs:
           # If the first instance died before creating the command socket, the
           # second would become the server itself and block forever — the
           # timeouts turn that into a fast, visible step failure instead.
-          timeout 30 ./build/TransAI --background &
+          timeout 30 ./build/TransAI --background > /tmp/transai.out 2> /tmp/transai.err &
           APP_PID=$!
           sleep 5
           timeout 15 ./build/TransAI --translate-selection
-          kill $APP_PID
+          STATUS=$?
+          # A QML error does not kill the process (the window is just broken or
+          # empty), so "still running" is not enough: any QML runtime error in
+          # the log fails the gate. Environment chatter such as the offscreen
+          # plugin's "does not support raise()" is not matched on purpose.
+          if grep -Eq 'is not defined|TypeError|ReferenceError|Unable to assign|Cannot assign|failed to load component|is not a type|qrc:/qml/.*\.qml:[0-9]+:' /tmp/transai.err; then
+            echo "::error::QML runtime errors detected"
+            cat /tmp/transai.err
+            kill $APP_PID || true
+            exit 1
+          fi
+          kill $APP_PID || true
+          exit $STATUS
+
+  # Memory/UB safety net: same sources and tests as linux, built with
+  # AddressSanitizer + UndefinedBehaviorSanitizer. Leak detection is disabled
+  # because Qt/ICU keep intentional global allocations alive at exit.
+  sanitizers:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxtst-dev libgl1-mesa-dev \
+            libxkbcommon-dev libdbus-1-dev libsecret-1-dev p7zip-full
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.9.*'
+          cache: true
+          archives: qtbase qtdeclarative icu
+
+      - name: Fetch bundled OCR models
+        run: ./scripts/fetch_ocr_models.sh
+
+      - name: Configure & build with ASan + UBSan
+        run: |
+          cmake -B build-asan -D CMAKE_BUILD_TYPE=RelWithDebInfo \
+            -D CMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+            -D CMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+          cmake --build build-asan -j$(nproc)
+
+      - name: Unit tests under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ctest --test-dir build-asan --output-on-failure
 
   # Cross-platform coverage: build + unit tests only (no GUI smoke on
   # headless runners). Both jobs are blocking gates, like linux.
@@ -95,6 +151,14 @@ jobs:
           Write-Host "Using Qt MinGW toolchain: $mingw"
           gcc --version
           Write-Host "which gcc: $((Get-Command gcc).Source)"
+
+      # 7-Zip ships with the windows-latest image; Git Bash resolves `7z` only
+      # once its directory is on PATH.
+      - name: Fetch bundled OCR models
+        shell: bash
+        run: |
+          export PATH="/c/Program Files/7-Zip:$PATH"
+          ./scripts/fetch_ocr_models.sh
 
       - name: Configure & build
         run: |

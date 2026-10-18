@@ -29,7 +29,9 @@ add_test(NAME tst_providerendpointbuilder COMMAND tst_providerendpointbuilder)
 add_executable(tst_i18n
     tst_i18n.cpp
 )
-target_compile_definitions(tst_i18n PRIVATE I18N_QML_SOURCE="${CMAKE_SOURCE_DIR}/qml/I18n.qml")
+target_compile_definitions(tst_i18n PRIVATE
+    I18N_QML_SOURCE="${CMAKE_SOURCE_DIR}/qml/I18n.qml"
+    I18N_QML_DIR="${CMAKE_SOURCE_DIR}/qml")
 target_link_libraries(tst_i18n PRIVATE Qt6::Quick Qt6::Test)
 add_test(NAME tst_i18n COMMAND tst_i18n)
 
@@ -65,14 +67,16 @@ add_executable(tst_streamingchatclient
     tst_streamingchatclient.cpp
     ${CMAKE_SOURCE_DIR}/src/translation/TranslationService.cpp
     ${CMAKE_SOURCE_DIR}/src/translation/StreamingChatClient.cpp
-    ${CMAKE_SOURCE_DIR}/src/translation/TranslationRequest.cpp
     ${CMAKE_SOURCE_DIR}/src/translation/PromptBuilder.cpp
     ${CMAKE_SOURCE_DIR}/src/translation/StreamParser.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/NetworkErrorMapper.cpp
     ${CMAKE_SOURCE_DIR}/src/providers/ProviderEndpointBuilder.cpp
     ${CMAKE_SOURCE_DIR}/src/providers/ThinkingPolicy.cpp
+    ${CMAKE_SOURCE_DIR}/src/vision/VisionTranslationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/vision/ImagePayloadBuilder.cpp
 )
 target_include_directories(tst_streamingchatclient PRIVATE ${CMAKE_SOURCE_DIR}/src)
-target_link_libraries(tst_streamingchatclient PRIVATE Qt6::Network Qt6::Test)
+target_link_libraries(tst_streamingchatclient PRIVATE Qt6::Gui Qt6::Network Qt6::Test)
 add_test(NAME tst_streamingchatclient COMMAND tst_streamingchatclient)
 
 add_executable(tst_translationhistory
@@ -84,7 +88,7 @@ target_link_libraries(tst_translationhistory PRIVATE Qt6::Test)
 add_test(NAME tst_translationhistory COMMAND tst_translationhistory)
 
 # OCR language-selection helpers live in the (platform-neutral) tesseract
-# backend source; the test does not need a tesseract binary.
+# fallback backend source; the test does not need a tesseract binary.
 add_executable(tst_ocrengine
     tst_ocrengine.cpp
     ${CMAKE_SOURCE_DIR}/src/ocr/OcrEngine.h
@@ -93,3 +97,82 @@ add_executable(tst_ocrengine
 target_include_directories(tst_ocrengine PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(tst_ocrengine PRIVATE Qt6::Gui Qt6::Test)
 add_test(NAME tst_ocrengine COMMAND tst_ocrengine)
+
+# Pure post-processing of the bundled OCR backend (score map -> boxes, reading
+# order, CTC decoding, model discovery). No ncnn, no model files.
+add_executable(tst_ocrpostprocess
+    tst_ocrpostprocess.cpp
+    ${CMAKE_SOURCE_DIR}/src/ocr/OcrPostProcess.cpp
+    ${CMAKE_SOURCE_DIR}/src/ocr/OcrModelLocator.cpp
+)
+target_include_directories(tst_ocrpostprocess PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(tst_ocrpostprocess PRIVATE Qt6::Test)
+add_test(NAME tst_ocrpostprocess COMMAND tst_ocrpostprocess)
+
+# End-to-end recognition with the bundled models. Only built when the bundled
+# backend is active; the test skips itself when the model files are absent, so
+# a fresh checkout without scripts/fetch_ocr_models.sh still passes.
+if(TRANSAI_OCR_BACKEND_ACTIVE STREQUAL "ncnn")
+    add_executable(tst_rapidocr
+        tst_rapidocr.cpp
+        ${CMAKE_SOURCE_DIR}/src/ocr/OcrEngine.h
+        ${CMAKE_SOURCE_DIR}/src/ocr/RapidOcrEngine.cpp
+        ${CMAKE_SOURCE_DIR}/src/ocr/OcrPostProcess.cpp
+        ${CMAKE_SOURCE_DIR}/src/ocr/OcrModelLocator.cpp
+    )
+    target_include_directories(tst_rapidocr PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_compile_definitions(tst_rapidocr PRIVATE
+        TRANSAI_OCR_SOURCE_MODEL_DIR="${TRANSAI_OCR_MODEL_DIR}")
+    target_link_libraries(tst_rapidocr PRIVATE Qt6::Gui Qt6::Test Qt6::Concurrent ncnn)
+    add_test(NAME tst_rapidocr COMMAND tst_rapidocr)
+    # QPainter needs a font database, which needs a platform plugin.
+    set_tests_properties(tst_rapidocr PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
+add_executable(tst_networkerrormapper
+    tst_networkerrormapper.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/NetworkErrorMapper.cpp
+)
+target_include_directories(tst_networkerrormapper PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(tst_networkerrormapper PRIVATE Qt6::Network Qt6::Test)
+add_test(NAME tst_networkerrormapper COMMAND tst_networkerrormapper)
+
+# Pure geometry: the preview-pixel → original-image mapping used by the
+# in-app region selection overlay (header-only helper).
+add_executable(tst_screenshotgeometry
+    tst_screenshotgeometry.cpp
+)
+target_include_directories(tst_screenshotgeometry PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(tst_screenshotgeometry PRIVATE Qt6::Gui Qt6::Test)
+add_test(NAME tst_screenshotgeometry COMMAND tst_screenshotgeometry)
+
+# Window-dismiss policy needs a QGuiApplication (offscreen) for QWindow.
+add_executable(tst_windowdismiss
+    tst_windowdismiss.cpp
+    ${CMAKE_SOURCE_DIR}/src/app/WindowDismissHelper.cpp
+)
+target_include_directories(tst_windowdismiss PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(tst_windowdismiss PRIVATE Qt6::Gui Qt6::Test)
+# WindowDismissHelper queries the X server directly on Linux.
+if(TARGET X11::X11)
+    target_link_libraries(tst_windowdismiss PRIVATE X11::X11)
+endif()
+add_test(NAME tst_windowdismiss COMMAND tst_windowdismiss)
+
+# Single-instance command socket: forwarding + stale-socket recovery.
+add_executable(tst_applicationcommandserver
+    tst_applicationcommandserver.cpp
+    ${CMAKE_SOURCE_DIR}/src/app/ApplicationCommandServer.cpp
+)
+target_include_directories(tst_applicationcommandserver PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(tst_applicationcommandserver PRIVATE Qt6::Network Qt6::Test)
+add_test(NAME tst_applicationcommandserver COMMAND tst_applicationcommandserver)
+
+# Hotkey uniqueness arbitration (header-only): one chord = one action.
+add_executable(tst_shortcutconflict
+    tst_shortcutconflict.cpp
+)
+target_include_directories(tst_shortcutconflict PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(tst_shortcutconflict PRIVATE Qt6::Gui Qt6::Test)
+add_test(NAME tst_shortcutconflict COMMAND tst_shortcutconflict)

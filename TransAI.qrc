@@ -17,6 +17,7 @@
         <file>qml/settings/ScreenshotSection.qml</file>
         <file>qml/settings/HotkeySection.qml</file>
         <file>qml/AppView.qml</file>
+        <file>qml/MainHistoryPopup.qml</file>
         <file>qml/RegionSelectorWindow.qml</file>
         <file>qml/AppBackground.qml</file>
         <file>qml/ThemedComboBox.qml</file>

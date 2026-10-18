@@ -12,14 +12,13 @@ TranslationService::TranslationService(QObject* parent)
 {
 }
 
-void TranslationService::translate(const QString& text, const QString& targetLanguage, int mode,
+void TranslationService::translate(const QString& text, const QString& targetLanguage,
                                    const QString& provider, const QString& apiServer,
                                    const QString& apiKey, const QString& model)
 {
     TranslationRequest request;
     request.text = text;
     request.targetLanguage = targetLanguage;
-    request.mode = translationModeFromInt(mode);
     request.provider = provider;
     request.apiServer = apiServer;
     request.apiKey = apiKey;
@@ -46,7 +45,7 @@ void TranslationService::translate(const TranslationRequest& request)
         return;
     }
 
-    if (normalizedRequest.provider != "ollama" && !ProviderDefaults::isPlausibleApiKey(normalizedRequest.apiKey)) {
+    if (!ProviderDefaults::isOllamaProvider(normalizedRequest.provider) && !ProviderDefaults::isPlausibleApiKey(normalizedRequest.apiKey)) {
         failValidation(ProviderDefaults::apiKeyErrorMessage());
         return;
     }
@@ -62,18 +61,16 @@ TranslationService::PendingRequest TranslationService::buildPendingRequest(const
     // Fully automatic: the policy is derived from provider/host/model only.
     ThinkingPolicy thinkingPolicy = ThinkingPolicyBuilder::build(
         request.provider, request.apiServer, request.model);
-    if (request.mode == TranslationMode::Translate) {
-        // Translation is a deterministic task: always instruct the model
-        // (prompt level) to skip its reasoning process.
-        thinkingPolicy.directAnswerHint = true;
-    }
+    // Translation is a deterministic task: always instruct the model (prompt
+    // level) to skip its reasoning process.
+    thinkingPolicy.directAnswerHint = true;
 
     PendingRequest pending;
     pending.networkRequest = QNetworkRequest(
         ProviderEndpointBuilder::buildChatCompletionUrl(request.apiServer, request.provider));
     pending.networkRequest.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     pending.networkRequest.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork);
-    if (request.provider != "ollama") {
+    if (!ProviderDefaults::isOllamaProvider(request.provider)) {
         pending.networkRequest.setRawHeader(
             "Authorization", QString("Bearer %1").arg(request.apiKey.trimmed()).toUtf8());
     }

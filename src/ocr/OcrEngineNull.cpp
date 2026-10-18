@@ -6,25 +6,24 @@
 
 namespace {
 
-class UnavailableOcrEngine : public OcrEngine
-{
+class UnavailableOcrEngine : public OcrEngine {
 public:
     using OcrEngine::OcrEngine;
 
     bool isAvailable() override { return false; }
 
-    void recognize(const QImage& image) override
-    {
+    QString unavailableReason() const override { return QStringLiteral("OCR is not available on this platform"); }
+
+    void recognize(const QImage& image) override {
         Q_UNUSED(image);
-        emit recognitionFailed(QStringLiteral("OCR is not available on this platform"));
+        emit recognitionFailed(unavailableReason());
     }
 
     void cancel() override {}
 };
 
-} // namespace
+}  // namespace
 
-std::unique_ptr<OcrEngine> createOcrEngine()
-{
+std::unique_ptr<OcrEngine> createUnavailableOcrEngine() {
     return std::make_unique<UnavailableOcrEngine>();
 }

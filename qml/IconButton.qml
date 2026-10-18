@@ -8,6 +8,8 @@ Item {
     property url normalUrl      //常规状态下的图片路径
     property url hoveredUrl     //悬浮
     property url pressedUrl     //按下
+    // Accessible label for screen readers (buttons are icon-only otherwise).
+    property string accessibleName: ""
 
     //点击信号
     signal clicked();
@@ -35,6 +37,10 @@ Item {
             NumberAnimation { duration: 90 }
         }
     }
+
+    Accessible.role: Accessible.Button
+    Accessible.name: root.accessibleName
+    Accessible.onPressAction: root.clicked()
 
     MouseArea {
         id: area

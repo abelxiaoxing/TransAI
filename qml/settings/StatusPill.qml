@@ -17,9 +17,9 @@ Rectangle {
     width: implicitWidth
     height: 22
     radius: 11
-    color: Qt.rgba(1, 1, 1, 0.055)
+    color: ThemeColors.chipBg
     border.width: 1
-    border.color: Qt.rgba(1, 1, 1, 0.08)
+    border.color: ThemeColors.chipBorder
 
     Rectangle {
         width: 6

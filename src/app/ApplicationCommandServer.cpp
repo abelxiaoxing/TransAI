@@ -43,32 +43,53 @@ bool ApplicationCommandServer::sendCommandToRunningInstance(const QString& comma
 bool ApplicationCommandServer::start()
 {
     const QString name = serverName();
+
+    // Refuse to take the socket away from a live instance. Depending on the Qt
+    // version, listen() may silently unlink and rebind an existing socket file,
+    // so the check cannot be deferred to listen()'s AddressInUseError. (The
+    // primary guard is still sendCommandToRunningInstance() in main(); this
+    // covers the startup race.)
+    if (hasLiveInstance(name)) {
+        m_errorString = QStringLiteral("Another TransAI instance is already running");
+        return false;
+    }
+
     if (m_server.listen(name)) {
         return true;
     }
 
     if (m_server.serverError() != QAbstractSocket::AddressInUseError) {
+        m_errorString = m_server.errorString();
         return false;
     }
 
-    // A crashed process can leave a filesystem socket behind. Never remove it
-    // until a connection attempt has proved that no live instance owns it.
-    QLocalSocket probe;
-    probe.connectToServer(name, QIODevice::WriteOnly);
-    if (probe.waitForConnected(200)) {
-        probe.disconnectFromServer();
-        return false;
-    }
-
+    // A crashed process can leave a filesystem socket behind. Only remove it
+    // once a connection attempt has proved that no live instance owns it.
     if (!QLocalServer::removeServer(name)) {
+        m_errorString = m_server.errorString();
         return false;
     }
-    return m_server.listen(name);
+    if (!m_server.listen(name)) {
+        m_errorString = m_server.errorString();
+        return false;
+    }
+    return true;
 }
 
 QString ApplicationCommandServer::errorString() const
 {
-    return m_server.errorString();
+    return m_errorString.isEmpty() ? m_server.errorString() : m_errorString;
+}
+
+bool ApplicationCommandServer::hasLiveInstance(const QString& name)
+{
+    QLocalSocket probe;
+    probe.connectToServer(name, QIODevice::WriteOnly);
+    if (!probe.waitForConnected(200)) {
+        return false;
+    }
+    probe.disconnectFromServer();
+    return true;
 }
 
 QString ApplicationCommandServer::serverName()

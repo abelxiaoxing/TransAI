@@ -56,6 +56,11 @@ QtObject {
         "Press keys…": "请按下快捷键…",
         "Esc to cancel": "按 Esc 取消",
         "Couldn't register '%1'. It may be reserved by the system or another app.": "无法注册“%1”。该快捷键可能已被系统或其他应用占用。",
+        // Fixed reasons GlobalShortcutManager reports when a chord is already
+        // taken (one hotkey = one action).
+        "This shortcut is already assigned to Translate selection": "该快捷键已用于“翻译选中文本”",
+        "This shortcut is already assigned to Translate screenshot": "该快捷键已用于“截图翻译”",
+        "This shortcut is already assigned to another action": "该快捷键已被其他功能占用",
 
         // Screenshot translation card
         "Screenshot Translation": "截图翻译",
@@ -76,22 +81,14 @@ QtObject {
         "Translating...": "翻译中…",
         "Error": "错误",
         "Stopped": "已停止",
+        "From history": "来自历史记录",
         "Ready": "就绪",
         "Translated": "翻译结果",
-        "Explanation": "讲解结果",
-        "Corrected": "纠错结果",
         "Translate (Ctrl+Enter)": "翻译 (Ctrl+Enter)",
         "Translate ⌘Enter": "翻译 ⌘Enter",
-        "Explain (Ctrl+Enter)": "讲解 (Ctrl+Enter)",
-        "Explain ⌘Enter": "讲解 ⌘Enter",
-        "Correct (Ctrl+Enter)": "纠错 (Ctrl+Enter)",
-        "Correct ⌘Enter": "纠错 ⌘Enter",
-        "Translate": "翻译",
-        "Explain Word": "单词讲解",
-        "Correct Grammar": "语法纠错",
         "Copy": "复制",
         "Copied ✓": "已复制 ✓",
-        "stop": "停止",
+        "Stop": "停止",
         "Auto": "自动",
         "History": "历史记录",
         "Clear": "清空",
@@ -103,11 +100,20 @@ QtObject {
         "Recognizing text...": "正在识别文字…",
         "No text recognized in the screenshot": "截图中没有识别到文字",
         "OCR is not available on this system: the tesseract command was not found": "OCR 不可用：系统中未找到 tesseract 命令",
-        "OCR is not available on this system: install tesseract-ocr or switch to Auto / Vision model.": "OCR 不可用：请安装 tesseract-ocr，或切换为“自动 / 视觉模型”模式。",
+        "OCR is not available: the bundled OCR models are missing": "OCR 不可用：内置 OCR 模型文件缺失",
+        "OCR is not available: the bundled OCR models could not be loaded": "OCR 不可用：内置 OCR 模型加载失败",
         "OCR is not available on this platform": "当前平台不支持 OCR",
         "OCR failed to start": "OCR 启动失败",
         "Failed to encode the image for OCR": "图片编码失败，无法进行 OCR",
         "Click-outside-to-hide is unavailable: TransAI can't read the pointer devices (/dev/input). See docs/hyprland-integration.md for the udev rule.": "“点击窗口外自动隐藏”不可用：TransAI 无法读取指针设备（/dev/input）。udev 规则配置见 docs/hyprland-integration.md。",
+
+        // API key storage + accessibility names
+        "Stored in your system keychain": "已保存在系统密钥环中",
+        "Close": "关闭",
+        "Translation history": "翻译历史",
+        "Copy result": "复制结果",
+        "Pin window": "窗口置顶",
+        "Unpin window": "取消置顶",
 
         // App-generated error messages (C++ services emit these English
         // strings; they double as table keys. Dynamic server payloads are

@@ -50,27 +50,43 @@ QString chooseLanguages(const QStringList& available)
 
 namespace {
 
+// Bounded probe budgets. Both run off the critical path (see startAsyncProbe),
+// so they only matter for the synchronous fallback taken when the user starts
+// a screenshot OCR job before the event loop got to the async probe.
+constexpr int kVersionProbeTimeoutMs = 1500;
+constexpr int kLanguageProbeTimeoutMs = 2000;
+
 class TesseractOcrEngine : public OcrEngine
 {
 public:
     explicit TesseractOcrEngine(QObject* parent = nullptr)
         : OcrEngine(parent)
     {
-        // `tesseract --version` exits instantly when present and fails fast
-        // when absent, so a bounded synchronous probe at startup is fine.
-        QProcess probe;
-        probe.start(QStringLiteral("tesseract"), { QStringLiteral("--version") });
-        m_available = probe.waitForFinished(1500) && probe.exitCode() == 0;
-        if (m_available) {
-            probeLanguages();
-        }
+        // Probing `tesseract --version` (and then --list-langs) used to run
+        // synchronously in the constructor, on the thread that builds the QML
+        // engine — up to 3.5s of dead startup on a cold cache. Launch it
+        // asynchronously instead and publish the result through availableChanged.
+        startAsyncProbe();
     }
 
     bool isAvailable() override { return m_available; }
 
+    // The tesseract backend is now only a fallback for builds without the
+    // bundled models, so the reason has to name the missing binary.
+    QString unavailableReason() const override
+    {
+        return m_available
+            ? QString()
+            : QStringLiteral("OCR is not available on this system: the tesseract command was not found");
+    }
+
     void recognize(const QImage& image) override
     {
         cancel();
+        if (!m_probeDone) {
+            // The user acted before the asynchronous probe finished.
+            probeSynchronously();
+        }
         if (!m_available) {
             emit recognitionFailed(QStringLiteral(
                 "OCR is not available on this system: the tesseract command was not found"));
@@ -136,26 +152,109 @@ public:
     }
 
 private:
-    void probeLanguages()
+    // Single funnel for every probe path: caches the result and lets QML
+    // re-evaluate its availability hints exactly once per outcome. The first
+    // result wins — the asynchronous probe may still be in flight when the
+    // synchronous fallback in recognize() completes.
+    void setProbeResult(bool available, const QString& languages)
     {
-        QProcess probe;
-        probe.start(QStringLiteral("tesseract"), { QStringLiteral("--list-langs") });
-        if (!probe.waitForFinished(2000) || probe.exitCode() != 0) {
-            return; // empty list → tesseract default languages
+        if (m_probeDone) {
+            return;
         }
-        m_languages = OcrLanguageSelection::chooseLanguages(
-            OcrLanguageSelection::parseListLangsOutput(QString::fromUtf8(probe.readAllStandardOutput())));
-        qInfo() << "OCR languages:" << m_languages;
+        m_available = available;
+        m_languages = languages;
+        m_probeDone = true;
+        if (available && !languages.isEmpty()) {
+            qInfo() << "OCR languages:" << languages;
+        }
+        // Emitted exactly once: nothing else can change availability afterwards.
+        emit availableChanged();
+    }
+
+    void startAsyncProbe()
+    {
+        auto* versionProbe = new QProcess(this);
+        connect(versionProbe, &QProcess::errorOccurred, this,
+                [this, versionProbe](QProcess::ProcessError error) {
+                    if (error != QProcess::FailedToStart) {
+                        return;
+                    }
+                    // Absent binary: no finished() follows a failed start.
+                    versionProbe->deleteLater();
+                    setProbeResult(false, QString());
+                });
+        connect(versionProbe, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+                [this, versionProbe](int exitCode, QProcess::ExitStatus) {
+                    versionProbe->deleteLater();
+                    if (m_probeDone) {
+                        return; // the synchronous fallback already answered
+                    }
+                    if (exitCode != 0) {
+                        setProbeResult(false, QString());
+                        return;
+                    }
+                    startAsyncLanguageProbe();
+                });
+        versionProbe->start(QStringLiteral("tesseract"), { QStringLiteral("--version") });
+    }
+
+    void startAsyncLanguageProbe()
+    {
+        auto* langsProbe = new QProcess(this);
+        connect(langsProbe, &QProcess::errorOccurred, this,
+                [this, langsProbe](QProcess::ProcessError error) {
+                    if (error != QProcess::FailedToStart) {
+                        return;
+                    }
+                    langsProbe->deleteLater();
+                    setProbeResult(true, QString()); // available, default languages
+                });
+        connect(langsProbe, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+                [this, langsProbe](int exitCode, QProcess::ExitStatus) {
+                    const QByteArray out = langsProbe->readAllStandardOutput();
+                    langsProbe->deleteLater();
+                    // A failing --list-langs leaves the language set empty,
+                    // which means "tesseract default".
+                    setProbeResult(true, exitCode == 0
+                        ? OcrLanguageSelection::chooseLanguages(
+                              OcrLanguageSelection::parseListLangsOutput(QString::fromUtf8(out)))
+                        : QString());
+                });
+        langsProbe->start(QStringLiteral("tesseract"), { QStringLiteral("--list-langs") });
+    }
+
+    // Only used when recognize() arrives before the async probe completed.
+    void probeSynchronously()
+    {
+        if (m_probeDone) {
+            return;
+        }
+        QProcess version;
+        version.start(QStringLiteral("tesseract"), { QStringLiteral("--version") });
+        if (!version.waitForFinished(kVersionProbeTimeoutMs) || version.exitCode() != 0) {
+            setProbeResult(false, QString());
+            return;
+        }
+
+        QProcess langs;
+        langs.start(QStringLiteral("tesseract"), { QStringLiteral("--list-langs") });
+        QString languages;
+        if (langs.waitForFinished(kLanguageProbeTimeoutMs) && langs.exitCode() == 0) {
+            languages = OcrLanguageSelection::chooseLanguages(
+                OcrLanguageSelection::parseListLangsOutput(QString::fromUtf8(langs.readAllStandardOutput())));
+        }
+        setProbeResult(true, languages);
     }
 
     bool m_available = false;
+    bool m_probeDone = false;
     QString m_languages;
     QProcess* m_process = nullptr;
 };
 
 } // namespace
 
-std::unique_ptr<OcrEngine> createOcrEngine()
+std::unique_ptr<OcrEngine> createTesseractOcrEngine()
 {
     return std::make_unique<TesseractOcrEngine>();
 }

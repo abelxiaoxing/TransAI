@@ -1,15 +1,20 @@
+#include <QDir>
+#include <QDirIterator>
 #include <QFile>
 #include <QGuiApplication>
+#include <QHash>
 #include <QObject>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
+#include <QRegularExpression>
 #include <QTemporaryDir>
 #include <QtTest>
 
 // Exercises the I18n.qml singleton outside the app UI: table lookup,
-// placeholder substitution, missing-key fallback, and — most importantly —
-// live re-translation when Setting.displayLanguage changes.
+// placeholder substitution, missing-key fallback, live re-translation when
+// Setting.displayLanguage changes, and — as a drift guard — that every key the
+// QML sources ask for actually exists in the Chinese table.
 //
 // The singleton is staged into a temp module directory (qmldir + I18n.qml +
 // a generated harness) so the directory's implicit import resolves it the
@@ -56,9 +61,14 @@ class TestI18n : public QObject
 
 private slots:
     void lookupPlaceholderFallbackAndLiveSwitch();
+    void everyQmlKeyExistsInTheChineseTable();
+    void chineseTableHasNoDuplicateKeys();
 
 private:
     bool stageModule(const QString& dir) const;
+    static QStringList qmlSourceFiles();
+    static QStringList keysUsedByQmlSources();
+    static QHash<QString, int> chineseTableKeys();
 };
 
 bool TestI18n::stageModule(const QString& dir) const
@@ -81,6 +91,91 @@ bool TestI18n::stageModule(const QString& dir) const
     }
     harness.write(kHarnessQml);
     return true;
+}
+
+QStringList TestI18n::qmlSourceFiles()
+{
+    QStringList files;
+    QDirIterator it(QStringLiteral(I18N_QML_DIR), { QStringLiteral("*.qml") },
+                    QDir::Files, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        files << it.next();
+    }
+    files.sort();
+    return files;
+}
+
+QStringList TestI18n::keysUsedByQmlSources()
+{
+    QRegularExpression call(QStringLiteral(R"(I18n\.t\(\s*\"((?:[^\"\\]|\\.)*)\")"));
+    QStringList keys;
+    for (const QString& path : qmlSourceFiles()) {
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly)) {
+            continue;
+        }
+        const QString source = QString::fromUtf8(file.readAll());
+        auto matches = call.globalMatch(source);
+        while (matches.hasNext()) {
+            const QString key = matches.next().captured(1);
+            if (!keys.contains(key)) {
+                keys << key;
+            }
+        }
+    }
+    keys.sort();
+    return keys;
+}
+
+QHash<QString, int> TestI18n::chineseTableKeys()
+{
+    QHash<QString, int> counts;
+    QFile file(QStringLiteral(I18N_QML_SOURCE));
+    if (!file.open(QIODevice::ReadOnly)) {
+        return counts;
+    }
+    const QString source = QString::fromUtf8(file.readAll());
+    // Table entries are the file's only `"key": "value"` pairs inside the
+    // _zhTable literal; the t() helper has no string keys.
+    QRegularExpression entry(QStringLiteral(R"(^\s*\"((?:[^\"\\]|\\.)*)\"\s*:)" ),
+                             QRegularExpression::MultilineOption);
+    auto matches = entry.globalMatch(source);
+    while (matches.hasNext()) {
+        const QString key = matches.next().captured(1);
+        counts[key] += 1;
+    }
+    return counts;
+}
+
+void TestI18n::everyQmlKeyExistsInTheChineseTable()
+{
+    const QStringList used = keysUsedByQmlSources();
+    QVERIFY2(!used.isEmpty(), "QML key scan found nothing — I18N_QML_DIR wrong?");
+
+    const QHash<QString, int> table = chineseTableKeys();
+    QStringList missing;
+    for (const QString& key : used) {
+        if (!table.contains(key)) {
+            missing << key;
+        }
+    }
+    QVERIFY2(missing.isEmpty(),
+             qPrintable(QStringLiteral("Missing zh-CN entries: ") + missing.join(QStringLiteral(" | "))));
+}
+
+void TestI18n::chineseTableHasNoDuplicateKeys()
+{
+    // QML object literals silently keep the last duplicate; a duplicate usually
+    // means one entry was edited in place and the other forgotten.
+    const QHash<QString, int> table = chineseTableKeys();
+    QStringList duplicates;
+    for (auto it = table.constBegin(); it != table.constEnd(); ++it) {
+        if (it.value() > 1) {
+            duplicates << it.key();
+        }
+    }
+    QVERIFY2(duplicates.isEmpty(),
+             qPrintable(QStringLiteral("Duplicate zh-CN keys: ") + duplicates.join(QStringLiteral(" | "))));
 }
 
 void TestI18n::lookupPlaceholderFallbackAndLiveSwitch()

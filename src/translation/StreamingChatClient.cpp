@@ -3,6 +3,7 @@
 #include <QJsonDocument>
 #include <QTimer>
 
+#include "providers/NetworkErrorMapper.h"
 #include "providers/ThinkingPolicy.h"
 
 namespace {
@@ -115,7 +116,7 @@ void StreamingChatClient::sendPendingRequest()
         // Final read plus the buffered tail, merged into a single result.
         const StreamParseResult result = m_streamParser.consume(currentReply->readAll());
         if (!result.content.isEmpty()) {
-            setResponseData(m_responseData + result.content);
+            appendResponseData(result.content);
         }
         if (result.hasError && !result.errorMessage.isEmpty()) {
             setResponseError(result.errorMessage);
@@ -160,7 +161,7 @@ void StreamingChatClient::sendPendingRequest()
                 : m_responseError;
         } else {
             terminalError = m_responseError.isEmpty()
-                ? networkErrorMessage(currentReply->error())
+                ? NetworkErrorMapper::messageFor(currentReply->error())
                 : m_responseError;
         }
 
@@ -201,7 +202,7 @@ void StreamingChatClient::handleStreamData(QNetworkReply* reply)
 
     const StreamParseResult result = m_streamParser.appendChunk(reply->readAll());
     if (!result.content.isEmpty()) {
-        setResponseData(m_responseData + result.content);
+        appendResponseData(result.content);
     }
     if (result.hasError && !result.errorMessage.isEmpty()) {
         // Record the error but do not emit translationFailed here; the
@@ -216,6 +217,15 @@ void StreamingChatClient::setResponseData(const QString& responseData)
         return;
     }
     m_responseData = responseData;
+    emit responseDataChanged();
+}
+
+void StreamingChatClient::appendResponseData(const QString& chunk)
+{
+    if (chunk.isEmpty()) {
+        return;
+    }
+    m_responseData += chunk;
     emit responseDataChanged();
 }
 
@@ -235,27 +245,4 @@ void StreamingChatClient::setIsRequesting(bool isRequesting)
     }
     m_isRequesting = isRequesting;
     emit isRequestingChanged();
-}
-
-QString StreamingChatClient::networkErrorMessage(QNetworkReply::NetworkError error)
-{
-    // QNetworkReply error-code ranges (see QNetworkReply documentation):
-    //   1-99 network, 101-199 proxy, 201-299 content (covers HTTP 401/403/404),
-    //   301-399 protocol, 401-499 server-side.
-    if (error > 0 && error < 100) {
-        return QStringLiteral("Network error: could not reach the server");
-    }
-    if (error > 100 && error < 200) {
-        return QStringLiteral("Proxy error: could not reach the server through the proxy");
-    }
-    if (error > 200 && error < 300) {
-        return QStringLiteral("Request rejected: check the API key, model name and server URL");
-    }
-    if (error > 300 && error < 400) {
-        return QStringLiteral("Protocol error: unexpected response from the server");
-    }
-    if (error > 400 && error < 500) {
-        return QStringLiteral("Server error: the API server failed to handle the request");
-    }
-    return QStringLiteral("Network error");
 }

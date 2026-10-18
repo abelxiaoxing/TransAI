@@ -139,4 +139,16 @@ SectionCard {
         font.pixelSize: section.fontSizeLabel
         wrapMode: Text.WordWrap
     }
+
+    // Where the key is kept. When an OS keychain backend is available the
+    // plaintext copy is removed from config.json, which is worth surfacing.
+    Text {
+        width: parent.width
+        leftPadding: section.fieldColumnX
+        visible: !section.ollama && setting.apiKeyStoredSecurely
+        text: I18n.t("Stored in your system keychain")
+        color: section.mutedForeground
+        font.pixelSize: section.fontSizeLabel
+        wrapMode: Text.WordWrap
+    }
 }
