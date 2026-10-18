@@ -29,9 +29,22 @@ function Main() {
     # 第三方许可文本（见 LICENSES/README.md 与 THIRD-PARTY-NOTICES.md）：
     # 与模型文件同等重要，缺失同样中止打包。
     Copy-LicenseFiles -Destination "$archiveName\licenses"
-    cp $Qt6_DIR\bin\libgcc_s_seh-1.dll $archiveName\
-    cp $Qt6_DIR\bin\libstdc++-6.dll $archiveName\
-    cp $Qt6_DIR\bin\libwinpthread-1.dll $archiveName\
+    # 编译器运行时：windeployqt --compiler-runtime 已经从工具链里拷过一遍，
+    # 这里只补它漏掉的。Qt 6.9 的 mingw_64\bin 里没有这三个 DLL（它们在
+    # Tools\mingw*_64\bin），所以按"Qt bin → PATH → 已在包里"的顺序找，都找不到
+    # 才报错，而不是像以前那样直接 cp 一个不存在的路径。
+    foreach ($dll in @('libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll')) {
+        $source = Join-Path $Qt6_DIR "bin\$dll"
+        if (-not (Test-Path $source)) {
+            $onPath = Get-Command $dll -ErrorAction SilentlyContinue
+            if ($onPath) { $source = $onPath.Source }
+        }
+        if (Test-Path $source) {
+            Copy-Item $source $archiveName
+        } elseif (-not (Test-Path (Join-Path $archiveName $dll))) {
+            throw ("runtime {0} is missing from the archive and was not found under {1}\bin" -f $dll, $Qt6_DIR)
+        }
+    }
     # 删除不必要的文件
     $excludeList = @("*.qmlc", "*.ilk", "*.exp", "*.lib", "*.pdb")
     Remove-Item -Path $archiveName -Include $excludeList -Recurse -Force
