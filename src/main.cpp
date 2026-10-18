@@ -79,14 +79,16 @@ int main(int argc, char *argv[])
         : QString();
     const QString forwardedCommand = !initialCommand.isEmpty() ? initialCommand : (startHidden ? "noop" : "show");
 
-    if (ApplicationCommandServer::sendCommandToRunningInstance(forwardedCommand)) {
+    QString forwardError;
+    if (ApplicationCommandServer::sendCommandToRunningInstance(forwardedCommand, 500, &forwardError)) {
         return 0;
     }
+    qDebug() << "No running instance accepted the command:" << forwardError;
 
     ApplicationCommandServer commandServer;
     if (!commandServer.start()) {
         // Another instance may have started listening after our initial attempt.
-        if (ApplicationCommandServer::sendCommandToRunningInstance(forwardedCommand)) {
+        if (ApplicationCommandServer::sendCommandToRunningInstance(forwardedCommand, 500, &forwardError)) {
             return 0;
         }
         qCritical() << "Failed to start the application command server:" << commandServer.errorString();
