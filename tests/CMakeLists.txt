@@ -88,7 +88,7 @@ target_link_libraries(tst_translationhistory PRIVATE Qt6::Test)
 add_test(NAME tst_translationhistory COMMAND tst_translationhistory)
 
 # OCR language-selection helpers live in the (platform-neutral) tesseract
-# backend source; the test does not need a tesseract binary.
+# fallback backend source; the test does not need a tesseract binary.
 add_executable(tst_ocrengine
     tst_ocrengine.cpp
     ${CMAKE_SOURCE_DIR}/src/ocr/OcrEngine.h
@@ -97,6 +97,36 @@ add_executable(tst_ocrengine
 target_include_directories(tst_ocrengine PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(tst_ocrengine PRIVATE Qt6::Gui Qt6::Test)
 add_test(NAME tst_ocrengine COMMAND tst_ocrengine)
+
+# Pure post-processing of the bundled OCR backend (score map -> boxes, reading
+# order, CTC decoding, model discovery). No ncnn, no model files.
+add_executable(tst_ocrpostprocess
+    tst_ocrpostprocess.cpp
+    ${CMAKE_SOURCE_DIR}/src/ocr/OcrPostProcess.cpp
+    ${CMAKE_SOURCE_DIR}/src/ocr/OcrModelLocator.cpp
+)
+target_include_directories(tst_ocrpostprocess PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(tst_ocrpostprocess PRIVATE Qt6::Test)
+add_test(NAME tst_ocrpostprocess COMMAND tst_ocrpostprocess)
+
+# End-to-end recognition with the bundled models. Only built when the bundled
+# backend is active; the test skips itself when the model files are absent, so
+# a fresh checkout without scripts/fetch_ocr_models.sh still passes.
+if(TRANSAI_OCR_BACKEND_ACTIVE STREQUAL "ncnn")
+    add_executable(tst_rapidocr
+        tst_rapidocr.cpp
+        ${CMAKE_SOURCE_DIR}/src/ocr/OcrEngine.h
+        ${CMAKE_SOURCE_DIR}/src/ocr/RapidOcrEngine.cpp
+        ${CMAKE_SOURCE_DIR}/src/ocr/OcrPostProcess.cpp
+        ${CMAKE_SOURCE_DIR}/src/ocr/OcrModelLocator.cpp
+    )
+    target_include_directories(tst_rapidocr PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_compile_definitions(tst_rapidocr PRIVATE
+        TRANSAI_OCR_SOURCE_MODEL_DIR="${TRANSAI_OCR_MODEL_DIR}"
+        TRANSAI_OCR_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
+    target_link_libraries(tst_rapidocr PRIVATE Qt6::Gui Qt6::Test Qt6::Concurrent ncnn)
+    add_test(NAME tst_rapidocr COMMAND tst_rapidocr)
+endif()
 
 add_executable(tst_networkerrormapper
     tst_networkerrormapper.cpp
@@ -142,5 +172,8 @@ add_executable(tst_shortcutconflict
     tst_shortcutconflict.cpp
 )
 target_include_directories(tst_shortcutconflict PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# Qt6::Gui is needed for ShortcutConflict.h's QKeySequence, but the suite itself
+# creates no GUI: QTEST_GUILESS_MAIN keeps it off the platform-plugin path so it
+# also runs on headless CI runners.
 target_link_libraries(tst_shortcutconflict PRIVATE Qt6::Gui Qt6::Test)
 add_test(NAME tst_shortcutconflict COMMAND tst_shortcutconflict)

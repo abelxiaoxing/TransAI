@@ -120,7 +120,7 @@ CGImageRef CGImageCreateFromQImage(const QImage& image)
 
 } // namespace
 
-std::unique_ptr<OcrEngine> createOcrEngine()
+std::unique_ptr<OcrEngine> createVisionOcrEngine()
 {
     return std::make_unique<VisionOcrEngine>();
 }
