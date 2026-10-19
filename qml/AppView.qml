@@ -26,6 +26,16 @@ Item {
     // status pill on "Recognizing text..." until the user pressed Stop. Bounded
     // at 20 s — a full-HD screenshot with a hundred lines needs ~4 s.
     onOcrBusyChanged: ocrBusy ? ocrWatchdogTimer.start() : ocrWatchdogTimer.stop()
+    // The panels currently hold an image-only (vision) screenshot session. That
+    // path has no text source, so the input panel shows the screenshot itself
+    // (`screenshotPreviewUrl`) instead of leaving a leftover draft there, plus a
+    // badge naming it. Cleared by any session that does have a text source.
+    property bool imageOnlySession: false
+    // image:// URL of the screenshot a vision session is translating. When set,
+    // the input panel shows it instead of the text editor: the top of the window
+    // must show *what is being translated*, and for a vision request that is an
+    // image. Clicking it returns to text editing with the draft intact.
+    property string screenshotPreviewUrl: ""
     // Set when the capture itself failed before any request was sent.
     property bool screenshotFailed: false
     // Request snapshot: captured when a translation starts, so the history
@@ -99,6 +109,8 @@ Item {
         root.ocrBusy = false
         root.screenshotSession = false
         root.screenshotFailed = false
+        root.imageOnlySession = false
+        root.screenshotPreviewUrl = ""
         root.cacheHitKey = ""
         // Snapshot the request before sending: the input field stays editable
         // while the answer streams, and the history entry must describe what
@@ -170,7 +182,13 @@ Item {
         // Pure image sessions have no text source; the OCR branch fills this
         // in with the recognized text once it arrives.
         root.requestSourceText = ""
-        if (effectiveScreenshotMode() === "ocr") {
+        const mode = effectiveScreenshotMode()
+        // The OCR branch fills the input panel with the recognized text, so the
+        // panel is the real source. The vision branch has no text at all: show
+        // the screenshot itself there instead of a stale draft.
+        root.imageOnlySession = mode !== "ocr"
+        root.screenshotPreviewUrl = mode === "ocr" ? "" : screenshotPreview.publish(image)
+        if (mode === "ocr") {
             if (!ocrEngine.available) {
                 // The backend knows why (missing models, no tesseract, ...);
                 // its reason is a fixed English sentence that localizeError()
@@ -205,6 +223,10 @@ Item {
         root.pendingResultText = ""
         root.screenshotSession = true
         root.screenshotFailed = true
+        // Nothing was translated from the image, so the preview and its badge
+        // would only compete with the error for attention.
+        root.imageOnlySession = false
+        root.screenshotPreviewUrl = ""
         root.lastRawError = message
         root.errorDisplayed = true
         result.text = localizeError(message)
@@ -327,6 +349,8 @@ Item {
         result.text = entry.result
         root.screenshotSession = entry.type === "screenshot"
         root.screenshotFailed = false
+        root.imageOnlySession = false
+        root.screenshotPreviewUrl = ""
         root.errorDisplayed = false
         root.lastRawError = ""
         root.stopped = false
@@ -566,6 +590,59 @@ Item {
             anchors.fill: parent
             autoScroll:false
             textedit.focus : true
+            // Hidden, not cleared, while the screenshot is shown: the draft the
+            // user typed before the screenshot stays intact and comes back when
+            // the preview is dismissed.
+            visible: root.screenshotPreviewUrl === ""
+        }
+        // The source of a vision translation, shown where the text would be.
+        Image {
+            id: screenshotPreviewImage
+            visible: root.screenshotPreviewUrl !== ""
+            z: 1
+            anchors.fill: parent
+            anchors.margins: 6
+            source: root.screenshotPreviewUrl
+            fillMode: Image.PreserveAspectFit
+            asynchronous: true
+            cache: false
+            Accessible.role: Accessible.Graphic
+            Accessible.name: I18n.t("Screenshot image")
+            MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: {
+                    // Back to text editing (the screenshot stays in the result
+                    // panel below as the translated content).
+                    root.screenshotPreviewUrl = ""
+                    root.imageOnlySession = false
+                }
+            }
+        }
+        // Names the image shown above; explains why there is no text in the
+        // input panel ("one click on it brings the draft back").
+        Rectangle {
+            id: imageOnlyBadge
+            visible: root.imageOnlySession
+            z: 1
+            anchors.bottom: parent.bottom
+            anchors.right: parent.right
+            anchors.margins: 8
+            height: imageOnlyBadgeLabel.implicitHeight + 6
+            width: imageOnlyBadgeLabel.implicitWidth + 16
+            radius: height / 2
+            color: Qt.alpha(root.accent, 0.16)
+            border.width: 1
+            border.color: Qt.alpha(root.accent, 0.35)
+            Text {
+                id: imageOnlyBadgeLabel
+                anchors.centerIn: parent
+                text: I18n.t("Screenshot image")
+                color: root.accent
+                font.pixelSize: root.fontSizeSmall
+                Accessible.role: Accessible.StaticText
+                Accessible.name: imageOnlyBadgeLabel.text
+            }
         }
         // Height follows the window so the layout stays usable after resizing;
         // the Behavior keeps the (formerly animated) intro transition subtle.
@@ -843,6 +920,10 @@ Item {
                 return
             }
             inputArea.text = trimmed
+            // The OCR branch is the one path where the input panel *is* the
+            // screenshot's text, so neither the preview nor its badge applies.
+            root.imageOnlySession = false
+            root.screenshotPreviewUrl = ""
             visionService.abort()
             root.cacheHitKey = ""
             // The recognized text may already have a saved translation (from an

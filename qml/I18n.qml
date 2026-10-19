@@ -94,6 +94,7 @@ QtObject {
         "Clear": "清空",
         "No history yet": "暂无历史记录",
         "[Screenshot]": "[截图]",
+        "Screenshot image": "截图图像",
         "Copy command": "复制命令",
         "MODE": "模式",
         "Vision model": "视觉模型",

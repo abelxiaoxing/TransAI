@@ -8,6 +8,7 @@
 
 #include "app/ApplicationCommandServer.h"
 #include "app/ClipboardHelper.h"
+#include "app/ScreenshotPreviewProvider.h"
 #include "app/TranslationHistory.h"
 #include "app/WindowDismissHelper.h"
 #include "settings/Setting.h"
@@ -108,6 +109,11 @@ int main(int argc, char *argv[])
     // Linux/Windows, Vision framework on macOS); always a valid object.
     auto* ocrEngine = createOcrEngine().release();
     ocrEngine->setParent(&app);
+    // Serves the screenshot being translated as an image:// URL, so a vision
+    // session shows what it actually translates instead of a stale input panel.
+    // The store is the QML-facing object; the image provider (owned by the
+    // engine, hence no parent here) reads from it on the scene-graph thread.
+    auto* screenshotPreview = new ScreenshotPreviewStore(&app);
 
     qmlRegisterType<TranslationService>("TransAI", 1, 0, "TranslationService");
     qmlRegisterType<VisionTranslationService>("TransAI", 1, 0, "VisionTranslationService");
@@ -126,6 +132,9 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("clipboard", clipboard);
     engine.rootContext()->setContextProperty("translationHistory", translationHistory);
     engine.rootContext()->setContextProperty("ocrEngine", ocrEngine);
+    engine.addImageProvider(QStringLiteral("transai-screenshot"),
+                            new ScreenshotPreviewProvider(screenshotPreview));
+    engine.rootContext()->setContextProperty("screenshotPreview", screenshotPreview);
     engine.rootContext()->setContextProperty("startHidden", startHidden);
     engine.rootContext()->setContextProperty("initialCommand", initialCommand);
 

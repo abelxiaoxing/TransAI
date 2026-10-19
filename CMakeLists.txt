@@ -60,6 +60,7 @@ set(HEADERS
     src/app/ApplicationCommandServer.h
     src/app/ClipboardHelper.h
     src/app/TranslationHistory.h
+    src/app/ScreenshotPreviewProvider.h
     src/app/WindowDismissHelper.h
     src/settings/Setting.h
     src/settings/SecretStore.h
@@ -92,6 +93,7 @@ set(SOURCES
     src/app/ApplicationCommandServer.cpp
     src/app/ClipboardHelper.cpp
     src/app/TranslationHistory.cpp
+    src/app/ScreenshotPreviewProvider.cpp
     src/app/WindowDismissHelper.cpp
     src/settings/Setting.cpp
     src/ocr/OcrEngineFactory.cpp

@@ -35,6 +35,17 @@ target_compile_definitions(tst_i18n PRIVATE
 target_link_libraries(tst_i18n PRIVATE Qt6::Quick Qt6::Test)
 add_test(NAME tst_i18n COMMAND tst_i18n)
 
+# The screenshot shown in the input panel for vision-model sessions: URL
+# uniqueness (QML caches by URL) and the size contract of the image provider.
+add_executable(tst_screenshotpreview
+    tst_screenshotpreview.cpp
+    ${CMAKE_SOURCE_DIR}/src/app/ScreenshotPreviewProvider.cpp
+    ${CMAKE_SOURCE_DIR}/src/app/ScreenshotPreviewProvider.h
+)
+target_include_directories(tst_screenshotpreview PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(tst_screenshotpreview PRIVATE Qt6::Quick Qt6::Test)
+add_test(NAME tst_screenshotpreview COMMAND tst_screenshotpreview)
+
 add_executable(tst_visionmodelcapability
     tst_visionmodelcapability.cpp
 )
