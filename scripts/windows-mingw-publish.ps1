@@ -43,7 +43,13 @@ function Main() {
     # 这里只补它漏掉的。Qt 6.9 的 mingw_64\bin 里没有这三个 DLL（它们在
     # Tools\mingw*_64\bin），所以按"Qt bin → PATH → 已在包里"的顺序找，都找不到
     # 才报错，而不是像以前那样直接 cp 一个不存在的路径。
-    foreach ($dll in @('libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll')) {
+    # libgomp-1.dll 是 OpenMP 运行时（内置 OCR 的 ncnn 并行靠它，见 CMakeLists
+    # 的 NCNN_OPENMP）：只在 exe 真的导入它时才必需，漏了就是启动即崩。
+    $runtimeDlls = @('libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll')
+    if (Test-BinaryImportsDll -Path $exe -DllName 'libgomp-1.dll') {
+        $runtimeDlls += 'libgomp-1.dll'
+    }
+    foreach ($dll in $runtimeDlls) {
         $source = Join-Path $Qt6_DIR "bin\$dll"
         if (-not (Test-Path $source)) {
             $onPath = Get-Command $dll -ErrorAction SilentlyContinue

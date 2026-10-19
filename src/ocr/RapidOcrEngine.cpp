@@ -48,6 +48,12 @@ constexpr int kMaxRecWidth = 2048;
 // Mean character confidence below which a line is treated as noise.
 constexpr float kMinLineScore = 0.3f;
 constexpr int kMinCropHeight = 4;
+// Ceiling for ncnn's intra-op parallelism (net.opt.num_threads drives the
+// `#pragma omp parallel for num_threads(...)` in ncnn's kernels). Measured on an
+// i5-1035G4 (4C/8T): 2 threads 0.78s, 4 threads 0.55s, 8 threads 0.64s for a
+// 12-line 1080p screenshot - hyperthreads beyond the physical cores only add
+// oversubscription, so 4 is the ceiling regardless of how wide the CPU is.
+constexpr int kMaxThreads = 4;
 
 struct OcrRunResult {
     QString text;
@@ -69,7 +75,7 @@ public:
     explicit RapidOcrEngine(QObject* parent = nullptr)
         : OcrEngine(parent)
         , m_paths(OcrModelLocator::locate())
-        , m_numThreads(std::clamp(QThread::idealThreadCount(), 1, 4)) {
+        , m_numThreads(std::clamp(QThread::idealThreadCount(), 1, kMaxThreads)) {
         // Nothing asynchronous here: the locator only stats a handful of
         // files, so availability is known before the first frame. A set of
         // models that exists but fails to load flips this back to false later
@@ -176,7 +182,8 @@ private:
         }
 
         m_keys = keys;
-        qInfo() << "bundled OCR ready:" << keys.size() << "classes, models in" << m_paths.directory();
+        qInfo() << "bundled OCR ready:" << keys.size() << "classes, models in" << m_paths.directory()
+                << "threads:" << m_numThreads;
         return true;
     }
 
@@ -304,6 +311,8 @@ private:
     OcrModelLocator::OcrModelPaths m_paths;
     QString m_unavailableReason;
     bool m_available = false;
+    // ncnn parallelises inside one inference (OpenMP); this bounds it so OCR on
+    // a worker thread cannot starve the UI of every core.
     int m_numThreads = 1;
     QStringList m_keys;
     std::unique_ptr<Nets> m_nets;

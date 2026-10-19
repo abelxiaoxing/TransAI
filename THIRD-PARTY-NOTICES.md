@@ -13,6 +13,7 @@ only; the project itself has no license file yet.
 | [ncnn](https://github.com/Tencent/ncnn) | `TRANSAI_NCNN_GIT_TAG` (default `20260526`) | BSD-3-Clause (plus third-party components listed in ncnn's `LICENSE.txt`) | Fetched by CMake `FetchContent` and linked statically into the OCR backend |
 | [PP-OCRv3](https://github.com/PaddlePaddle/PaddleOCR) models, as redistributed by [RapidOCR](https://github.com/RapidAI/RapidOcrNcnn) | RapidOcrNcnn 1.2.0 archive, SHA256-pinned in `scripts/fetch_ocr_models.sh` | Apache-2.0 | Model files (`res/ocr/models/`, **not** in git) downloaded at build time and shipped next to the app |
 | [libsecret](https://gitlab.gnome.org/GNOME/libsecret) | distribution package | LGPL-2.1-or-later | Optional, detected at configure time on Linux; linked dynamically |
+| OpenMP runtime ([libgomp](https://gcc.gnu.org/onlinedocs/libgomp/), `vcomp140.dll` on MSVC) | ships with the compiler toolchain | GPL-3.0-or-later **with** GCC Runtime Library Exception 3.1 | Runtime dependency of the OCR backend: ncnn parallelises its kernels with OpenMP (`CMakeLists.txt` `NCNN_OPENMP`) |
 
 ## What a release artifact must include
 
@@ -34,6 +35,12 @@ cannot silently ship without them.
 3. **PP-OCR models (Apache-2.0)** — `licenses/PP-OCR-Apache-2.0.txt`, plus the
    attribution to PaddleOCR/RapidOCR in this file.
 4. **libsecret (LGPL-2.1)** — linked dynamically; no action beyond naming it.
+5. **OpenMP runtime (GPL-3.0 with GCC exception)** — `licenses/GPL-3.0.txt` plus
+   `licenses/GCC-Runtime-Library-Exception-3.1.txt`. On Linux the runtime
+   (`libgomp.so.1`) comes from the distribution; the Windows zip ships
+   `libgomp-1.dll` (the publish scripts copy it when the executable imports it).
+   The GCC Runtime Library Exception exists precisely so that non-GPL programs
+   may be built against it.
 
 ## Notes
 
@@ -42,8 +49,10 @@ cannot silently ship without them.
   build without the models is fully functional except for OCR mode (which
   reports itself unavailable). Packaging scripts refuse to run without them —
   see `scripts/windows-*.ps1` and `build_install.sh`.
-- ncnn is built with `NCNN_VULKAN=OFF`, no tools/benchmarks/tests and no
-  external submodules, so the third-party components listed inside ncnn's own
-  `LICENSE.txt` reduce to its bundled zlib-licensed pieces.
+- ncnn is built with `NCNN_VULKAN=OFF`, `NCNN_OPENMP=ON` (see below), and no
+  tools/benchmarks/tests or external submodules, so the third-party components
+  listed inside ncnn's own `LICENSE.txt` reduce to its bundled zlib-licensed
+  pieces. OpenMP is not an optional optimisation here: this ncnn version has no
+  fallback thread pool, so without it every layer runs serially (5x slower OCR).
 - See `docs/phase-6-bundled-ocr.md` for the OCR pipeline and why ncnn is
   bundled instead of relying on a system OCR installation.

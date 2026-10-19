@@ -60,8 +60,21 @@ jobs:
 
       - name: Configure & build
         run: |
+          set -o pipefail
           cmake -B build -D CMAKE_BUILD_TYPE=Release \
-            -D CMAKE_C_COMPILER_LAUNCHER=ccache -D CMAKE_CXX_COMPILER_LAUNCHER=ccache
+            -D CMAKE_C_COMPILER_LAUNCHER=ccache -D CMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            2>&1 | tee /tmp/configure.log
+          # The bundled OCR backend is only fast because ncnn parallelises its
+          # kernels with OpenMP: this ncnn has no fallback thread pool, so
+          # without it every layer runs serially and a 1080p screenshot with a
+          # dozen text lines takes ~2.8 s instead of ~0.55 s (measured). CMake
+          # only warns when OpenMP is missing, which would leave OCR slow in a
+          # release nobody tested — fail the gate here instead.
+          if grep -q 'OCR backend: fetching ncnn' /tmp/configure.log; then
+            grep -q 'OCR backend: ncnn OpenMP parallel inference enabled' /tmp/configure.log || {
+              echo "::error::ncnn was configured without OpenMP — OCR would run single-threaded";
+              exit 1; }
+          fi
           cmake --build build -j$(nproc)
           ccache --show-stats --verbose | head -20
 

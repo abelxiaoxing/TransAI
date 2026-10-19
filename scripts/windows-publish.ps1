@@ -55,6 +55,17 @@ function Main() {
     # 拷贝vcRedist dll
     $redistDll="{0}{1}\*.CRT\*.dll" -f $env:vcToolsRedistDir.Trim(),$env:msvcArch
     Copy-Item $redistDll $archiveName\
+    # OpenMP 运行时 vcomp140.dll（内置 OCR 的 ncnn 并行靠它，见 CMakeLists 的
+    # NCNN_OPENMP）：不在 *.CRT 目录里，windeployqt --compiler-runtime 也不拷，
+    # 只在 Microsoft.VC*\OpenMP\ 下，所以只在 exe 真的导入它时去那里找。
+    if (Test-BinaryImportsDll -Path $exe -DllName 'vcomp140.dll') {
+        $openMp = Get-ChildItem ("{0}{1}\Microsoft.VC*.OpenMP\vcomp140.dll" -f $env:vcToolsRedistDir.Trim(),$env:msvcArch) -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if (-not $openMp) {
+            throw ("{0} imports vcomp140.dll but it was not found under {1}{2}\Microsoft.VC*.OpenMP" -f $exeLeaf, $env:vcToolsRedistDir.Trim(), $env:msvcArch)
+        }
+        Copy-Item $openMp.FullName $archiveName\
+    }
     # 拷贝WinSDK dll
     $sdkDll="{0}Redist\{1}ucrt\DLLs\{2}\*.dll" -f $env:winSdkDir.Trim(),$env:winSdkVer.Trim(),$env:msvcArch
     Copy-Item $sdkDll $archiveName\

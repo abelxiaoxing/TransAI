@@ -11,6 +11,7 @@ component each file covers and what the obligations are.
 | `ncnn-BSD-3-Clause.txt` | ncnn, fetched by CMake at the pinned `TRANSAI_NCNN_GIT_TAG` |
 | `PP-OCR-Apache-2.0.txt` | PP-OCRv3 weights redistributed by RapidOCR, fetched by `scripts/fetch_ocr_models.sh` |
 | `Qt-LGPL-3.0.txt`, `GPL-3.0.txt` | Qt 6 shared libraries (LGPL-3.0 incorporates GPL-3.0 by reference) |
+| `GCC-Runtime-Library-Exception-3.1.txt` | The OpenMP runtime shipped with the Windows zip (`libgomp-1.dll`, GPL-3.0-with-GCC-exception-3.1) — linked by ncnn's OpenMP kernels in the bundled OCR backend |
 
 When a dependency is added or its pin changes, refresh the corresponding file
 here — the texts are vendored on purpose so packaging never needs the network and

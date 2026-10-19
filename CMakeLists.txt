@@ -159,18 +159,32 @@ function(transai_setup_ocr_backend target)
     set(use_ncnn OFF)
 
     if(TRANSAI_BUNDLED_OCR)
+        # OpenMP is not an optional optimisation: ncnn parallelises its kernels
+        # with `#pragma omp parallel for num_threads(opt.num_threads)` and this
+        # ncnn has no fallback thread pool, so with OpenMP off every layer runs
+        # serially (measured: num_threads 1/2/4/8 all produce identical timings).
+        # Measured on an i5-1035G4, PP-OCRv3 det+rec, 12-line 1080p screenshot:
+        # 2.8 s serial vs 0.55 s with 4 OpenMP threads. The linux CI job fails
+        # when the "OpenMP parallel inference enabled" line below is missing, so
+        # this cannot silently regress. Turning it on recompiles ncnn in
+        # existing build trees.
+        find_package(OpenMP QUIET)
         find_package(ncnn QUIET)
         if(NOT TARGET ncnn AND TRANSAI_OCR_FETCH_NCNN)
             include(FetchContent)
             # Only two small PP-OCR models are ever executed: no Vulkan, no
-            # tools, no OpenMP, no C API.
+            # tools, no C API.
             set(NCNN_VULKAN OFF CACHE BOOL "" FORCE)
             set(NCNN_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
             set(NCNN_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
             set(NCNN_BUILD_BENCHMARK OFF CACHE BOOL "" FORCE)
             set(NCNN_BUILD_TESTS OFF CACHE BOOL "" FORCE)
             set(NCNN_INSTALL_SDK OFF CACHE BOOL "" FORCE)
-            set(NCNN_OPENMP OFF CACHE BOOL "" FORCE)
+            if(OpenMP_CXX_FOUND)
+                set(NCNN_OPENMP ON CACHE BOOL "" FORCE)
+            else()
+                set(NCNN_OPENMP OFF CACHE BOOL "" FORCE)
+            endif()
             set(NCNN_C_API OFF CACHE BOOL "" FORCE)
             if(TRANSAI_OCR_NCNN_ISA STREQUAL "portable")
                 set(NCNN_AVX2 OFF CACHE BOOL "" FORCE)
@@ -210,12 +224,24 @@ function(transai_setup_ocr_backend target)
 
     if(use_ncnn)
         set(TRANSAI_OCR_BACKEND_ACTIVE "ncnn" PARENT_SCOPE)
+        # One line the CI asserts on (see the linux "Configure & build" step):
+        # OCR without OpenMP is ~5x slower, which is a user-visible regression.
+        if(OpenMP_CXX_FOUND)
+            message(STATUS "OCR backend: ncnn OpenMP parallel inference enabled")
+        else()
+            message(WARNING
+                "OCR backend: no OpenMP found, ncnn inference runs single-threaded "
+                "(~5x slower OCR; install the compiler's OpenMP runtime, e.g. libgomp)")
+        endif()
         find_package(Qt6 REQUIRED COMPONENTS Concurrent)
         target_sources(${target} PRIVATE
             src/ocr/RapidOcrEngine.cpp
             src/ocr/OcrPostProcess.cpp
             src/ocr/OcrModelLocator.cpp)
         target_compile_definitions(${target} PRIVATE TRANSAI_OCR_BACKEND_NCNN)
+        # ncnn links OpenMP::OpenMP_CXX PUBLIC, so the runtime (libgomp on
+        # GCC/MinGW, vcomp on MSVC) is pulled in transitively — the Windows
+        # publish scripts ship libgomp-1.dll for that reason.
         target_link_libraries(${target} PRIVATE ncnn Qt6::Concurrent)
 
         if(EXISTS "${TRANSAI_OCR_MODEL_DIR}/ch_PP-OCRv3_det_infer.param"
