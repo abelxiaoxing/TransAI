@@ -19,10 +19,23 @@ phase 6 in `docs/`); what users get:
   `TransAI --translate-screenshot` in the compositor instead.
 - **Screenshot translation** with three modes — vision model, OCR, or automatic
   (default): vision when the configured screenshot model looks multimodal,
-  otherwise OCR.
+  otherwise OCR. The input panel always shows what is being translated: the
+  recognized text on the OCR path, and the screenshot itself (with a “Screenshot
+  image” badge, click to go back to typing) on the vision path.
 - **Bundled OCR**: PP-OCRv3 detection + recognition run in-process on ncnn, so
   OCR works without installing tesseract. Traditional fallback: the tesseract
-  CLI when the app is built without the bundled backend.
+  CLI when the app is built without the bundled backend. Recognition is
+  parallelised with OpenMP (~0.5 s for a full-HD screenshot with a dozen lines),
+  the recognized text fills the input panel above the translation, and an OCR leg
+  that never answers fails with an error after 20 s instead of sitting on
+  "Recognizing text…". A screenshot translated with the vision model instead
+  marks the input panel so it is clear that the text shown there is not the
+  translation's source.
+- **OCR text that reads like the screenshot**: recognition now runs per *visual
+  row* instead of per detected box (a settings row is one line, not a label line
+  plus a value line), and the recogniser's space characters are no longer
+  discarded — English comes out as `The screenshot OCR pipeline`, not
+  `ThescreenshotOCRpipeline`.
 - **History with cache reuse**: every successful translation is stored (newest
   first, capped at 100). Repeating a request fills the panel from history and
   says "From history"; pressing Translate again forces a fresh translation.
@@ -42,6 +55,8 @@ phase 6 in `docs/`); what users get:
 ### Packaging
 - Windows archives and Linux installs ship the OCR models plus the third-party
   license texts (`licenses/`); packaging refuses to run when either is missing.
+  The Windows zip carries the OpenMP runtime (`libgomp-1.dll`) when the
+  executable imports it.
 - Release builds are reproducible from CI: `.github/workflows/release.yml`
   (`workflow_dispatch`) produces `TransAI-<tag>-linux-x86_64.tar.gz` and
   `TransAI-<tag>-win64.zip`.

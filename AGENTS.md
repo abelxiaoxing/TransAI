@@ -6,7 +6,7 @@ TransAI is a cross-platform AI-powered translation application built with Qt6 an
 ## Build Commands
 
 ### Prerequisites
-- Qt 6.9+ (tested with 6.11), with Quick + Network + DBus (DBus is Linux-only, for portal screenshots)
+- Qt 6.9+ (tested with 6.11), with Quick + Network + DBus (DBus is Linux-only, for portal screenshots). The bundled OCR backend also needs a compiler with OpenMP support (gcc/clang/MinGW ship it; `libgomp` is the runtime on Linux/MinGW, `vcomp140.dll` on MSVC)
 - CMake 3.16+
 - C++17 compatible compiler
 - X11 + XTest development libraries (Linux)
@@ -40,6 +40,7 @@ src/
 ├── app/
 │   ├── ApplicationCommandServer.*  # Local socket server for single-instance commands
 │   ├── ClipboardHelper.*           # QML-facing QClipboard wrapper (context property "clipboard"; copies result text without a selection)
+│   ├── ScreenshotPreviewProvider.*  # Screenshot shown in the input panel for vision sessions (image://transai-screenshot)
 │   ├── TranslationHistory.*        # Recent-translation store (context property "translationHistory"; translation-history.json, newest-first, capped at 100) + cache lookup for repeated requests
 │   └── WindowDismissHelper.*       # Click-vs-mouse-move deactivation policy + in-window press timestamps (context property "windowDismiss")
 ├── input/
@@ -113,11 +114,12 @@ scripts/                            # Windows build/publish scripts
 - **Theme Colors**: Single source of truth is the `ThemeColors` singleton (qml/ThemeColors.qml). Views alias needed tokens as readonly properties; do not hardcode palette hex values.
 - **Shared chrome**: Page backgrounds come from `AppBackground`; settings-page dropdowns use `ThemedComboBox`; settings sections are built from `qml/settings/` (SectionCard/SettingsRow + per-domain Section). Extend those components instead of copying their styles.
 - **Declarative state**: Avoid imperative assignments that break bindings (e.g. opacity driven by MouseArea state must stay a binding).
-- **Main-view sessions**: `AppView` owns one result panel shared by text/vision/OCR; both services forward their signals into `beginSession()` / `updateResultText()` / `showServiceError()` / `finishSession()`. Streamed text is coalesced into a 50ms flush (`pendingResultText`) instead of one TextEdit relayout per SSE chunk, and the history entry is built from the request snapshot (`requestSourceText`/`requestTargetLanguage`), never from the live input field.
+- **Main-view sessions**: `AppView` owns one result panel shared by text/vision/OCR; both services forward their signals into `beginSession()` / `updateResultText()` / `showServiceError()` / `finishSession()`. Streamed text is coalesced into a 50ms flush (`pendingResultText`) instead of one TextEdit relayout per SSE chunk, and the history entry is built from the request snapshot (`requestSourceText`/`requestTargetLanguage`), never from the live input field. **The input panel always shows what is being translated**: only the OCR leg writes text into it (`inputArea.text = <recognized text>`), while a **vision** session has no text source and therefore shows the screenshot itself — `screenshotPreview.publish(image)` (context property `ScreenshotPreviewProvider.h`: a `ScreenshotPreviewStore` + a `QQuickImageProvider` serving `image://transai-screenshot/<id>`, sized to the panel, never cached because QML caches by URL) fills `screenshotPreviewUrl`, the text editor is hidden (not cleared, so a draft survives) and a "Screenshot image" badge names it; clicking the preview returns to text editing. Before that, a vision session left the previous draft visible, i.e. the top of the window showed text unrelated to the translation below it. Any session with a real text source (text translation, OCR, history restore) clears both `imageOnlySession` and `screenshotPreviewUrl`.
 - **Repeated-request cache**: the history *is* the cache. `AppView.reuseCachedTranslation()` asks `TranslationHistory::findCachedResult(source, targetLanguage)` (source compared after trimming) before sending anything, and fills the panel from the stored answer without a network request — nothing extra is stored and no duplicate entry is written on a hit; only the text and OCR legs use it, images have no comparable key. History recording is unconditional (no settings switch): every successful translation is stored, the file survives restarts, and the only way to wipe it is the Clear button in the main-view history popup (which also disables the cache). A hit marks `cacheHitKey`, so the status pill reads "From history" and pressing Translate again on that same request is an explicit retranslation (cache bypassed once, fresh answer then replaces the cached entry).
 - **Errors**: C++ services map network failures through `NetworkErrorMapper` so model detection and translation share the same wording; server payload messages still win.
 - **Accessibility**: icon-only / text-as-button controls carry `Accessible.role` + `Accessible.name` (and `onPressAction` where meaningful).
 - **Property naming trap**: in QML, a property whose name is `on` + a capitalized word (`onAccent`) is parsed as a signal handler, not a declaration ("Cannot assign a value to a signal"). Theme tokens therefore use names like `accentForeground`.
+- **QML can only call slots / `Q_INVOKABLE` methods**: a plain C++ virtual is visible to QML but not callable — `ocrEngine.recognize(image)` logged `TypeError: Property 'recognize' of object OcrEngine(...) is not a function`, returned `undefined`, and emitted no signal, so the OCR leg hung on "Recognizing text..." forever with nothing in the C++ tests failing. Every entry point QML calls is `Q_INVOKABLE`, `tests/tst_rapidocr.cpp::recognizeIsCallableFromQml` drives the engine through a real `QQmlEngine` as the guard, and `AppView.ocrWatchdogTimer` (20 s) turns any silently dead backend into a visible error instead of a stuck session.
 - **Global hotkeys**: `GlobalShortcutManager` is the single funnel for every hotkey (`registerShortcut(actionId, sequence)`), and it refuses a chord another action already holds — QHotkey alone accepts a duplicate (it dedups the native grab in its internal multihash) and then fires *every* action bound to that chord on one key press, so the check lives in `input/ShortcutConflict.h` before the platform call. `main.qml` owns one `shortcutRegistrar` (contract: `setShortcut(actionId, shortcut)` -> bool plus `lastError`), the recorders carry their `actionId` (`translateSelection` / `translateScreenshot`), and registration failures are routed to the card that owns the action (`SettingView.hotkeyError` / `screenshotHotkeyError`). Conflict reasons are fixed English sentences so `I18n._zhTable` can translate them.
 - **Window Management**: `ensureWindowVisible()` keeps windows on screen; auto-hide is click-driven (see Window Management gotcha), Esc / ✕ always hide
 - **Platform Detection**: `Qt.platform.os` for platform-specific UI adjustments
@@ -146,9 +148,10 @@ scripts/                            # Windows build/publish scripts
 - X11: selection read via simulated Ctrl+C with clipboard guard; Wayland: `wl-paste --primary` with Qt primary-selection fallback
 
 ### Screenshot Translation (multimodal + OCR)
-- Flow: trigger (tray/hotkey/CLI) → hide window → `ScreenshotCaptureService` → routed by `screenshotTranslateMode`: the vision path (`VisionTranslationService`) streams into the shared result panel; the OCR path (`OcrEngine` → `TranslationService` with mode forced to Translate) recognizes text first, shows it in the input panel, then streams the translation. The OCR branch stores the recognized text as the session's source, so the history entry keeps both the `[Screenshot]` marker and the text. Text/vision/OCR sessions abort each other so exactly one owns the panel (`ocrBusy` keeps the status pill honest during recognition)
+- Flow: trigger (tray/hotkey/CLI) → hide window → `ScreenshotCaptureService` → routed by `screenshotTranslateMode`: the vision path (`VisionTranslationService`) streams into the shared result panel; the OCR path (`OcrEngine` → `TranslationService` with mode forced to Translate) recognizes text first, shows it in the input panel, then streams the translation. The OCR branch stores the recognized text as the session's source, so the history entry keeps both the `[Screenshot]` marker and the text. Text/vision/OCR sessions abort each other so exactly one owns the panel (`ocrBusy` keeps the status pill honest during recognition, and a 20 s `ocrWatchdogTimer` fails the session if the backend never answers)
 - Mode routing (`AppView.effectiveScreenshotMode()`): explicit `vision`/`ocr` win; `auto` = vision when the effective screenshot model looks vision-capable, else OCR when an engine is available, else vision (which then surfaces the vision-unsupported guidance)
 - OCR backends (`src/ocr/`): **bundled RapidOCR** (PP-OCRv3 mobile det+rec on ncnn, in-process, ~13 MB of models fetched by `scripts/fetch_ocr_models.sh` into the git-ignored `res/ocr/models/`) is the default on Linux/Windows; the tesseract CLI backend remains only as a build-time fallback (`-DTRANSAI_BUNDLED_OCR=OFF`); macOS uses the Vision framework (`VNRecognizeTextRequest`, zh-Hans+en). QML always sees a valid `ocrEngine` context property. See `docs/phase-6-bundled-ocr.md` for the pipeline, the size/speed profiles and the known limitations (axis-aligned boxes only, no angle classifier)
+- OCR speed hinges on **OpenMP**: ncnn parallelises each kernel with `#pragma omp parallel for num_threads(opt.num_threads)` and this ncnn version has no fallback thread pool, so `NCNN_OPENMP=OFF` silently serialises the whole pipeline (measured: thread count made zero difference, 12-line 1080p screenshot took 2.8 s instead of 0.55 s). `CMakeLists.txt` now auto-enables it via `find_package(OpenMP)` and warns when missing; `RapidOcrEngine` caps `opt.num_threads` at 4 (`clamp(idealThreadCount, 1, 4)`, hyperthreads measure slower) and logs the value in `bundled OCR ready: ... threads: N`. The Windows publish scripts copy `libgomp-1.dll`/`vcomp140.dll` only when the built exe imports it (`Test-BinaryImportsDll` in `scripts/release-assets.ps1`)
 - Wayland capture requires xdg-desktop-portal (system UI handles region selection); X11/Windows/macOS grab every screen and open the in-app fullscreen region-selection overlay (`qml/RegionSelectorWindow.qml`, one per screen; drag = select, Esc/right-click = cancel)
 - The vision request reuses provider/server/key/model with the `screenshotVisionModel` override (empty = follow current); image payloads never touch `PromptBuilder`, and QML never sees base64
 - Portal handle tokens must be valid D-Bus object-path elements — strip dashes from UUIDs
@@ -182,9 +185,10 @@ scripts/                            # Windows build/publish scripts
 - A separate `sanitizers` job rebuilds and runs the whole suite with
   AddressSanitizer + UndefinedBehaviorSanitizer (`detect_leaks=0`)
 - The bundled OCR backend pulls ncnn in via FetchContent (CPU-only, SIMD
-  profile `portable` by default): the first configure spends ~5–10 min building
-  ncnn. `-DTRANSAI_BUNDLED_OCR=OFF` (or `-DTRANSAI_OCR_FETCH_NCNN=OFF` with no
-  system ncnn) keeps a build tesseract-only
+  profile `portable` by default, OpenMP enabled when available): the first
+  configure spends ~5–10 min building ncnn. `-DTRANSAI_BUNDLED_OCR=OFF` (or
+  `-DTRANSAI_OCR_FETCH_NCNN=OFF` with no system ncnn) keeps a build
+  tesseract-only
 - The smoke test fails on QML runtime errors (`TypeError`, `ReferenceError`,
   `Unable to assign`, `qrc:/qml/….qml:N:` …), because a broken QML component
   leaves the process alive with an empty window
@@ -193,7 +197,9 @@ scripts/                            # Windows build/publish scripts
   guard over all QML sources, VisionModelCapability, ImagePayloadBuilder,
   ScreenshotGeometry, Setting persistence incl. secret-store migration/write
   suppression with a fake store + configVersion migration, TranslationHistory
-  persistence + cached-result lookup, OCR language selection, ShortcutConflict
+  persistence + cached-result lookup, OCR language selection, OCR row assembly
+  (groupRows/mergeRowMembers/joinRowTexts/normalizeSpacing) and the bundled
+  engine driven through a real QQmlEngine, ShortcutConflict
   hotkey uniqueness, WindowDismissHelper pairing/offscreen
   policy, ApplicationCommandServer forwarding + stale-socket takeover, plus
   end-to-end StreamingChatClient text and vision request tests against a
@@ -223,8 +229,9 @@ scripts/                            # Windows build/publish scripts
 
 - `THIRD-PARTY-NOTICES.md` (repository root) lists every bundled/linked
   third-party component with its license (Qt LGPL, QHotkey MIT, ncnn BSD-3,
-  PP-OCR models Apache-2.0) and what a release artifact must ship. Update it
-  whenever a dependency is added or its pin changes.
+  PP-OCR models Apache-2.0, OpenMP runtime GPL-3.0-with-GCC-exception) and what a
+  release artifact must ship. Update it whenever a dependency is added or its
+  pin changes.
 
 ## Release Engineering
 
@@ -238,9 +245,10 @@ scripts/                            # Windows build/publish scripts
   contents, uploads artifacts, and only creates a **draft** GitHub release when
   `create_release` is true
 - `LICENSES/` holds the third-party license texts that ship as `licenses/` in
-  every artifact (Qt LGPL, QHotkey/ncnn BSD-3, PP-OCR Apache-2.0). Adding a
-  dependency means adding its text here **and** updating
-  `THIRD-PARTY-NOTICES.md`; the linux CI job fails on an empty text file
+  every artifact (Qt LGPL + GPL-3.0, QHotkey/ncnn BSD-3, PP-OCR Apache-2.0,
+  GCC Runtime Library Exception for the OpenMP runtime). Adding a dependency
+  means adding its text here **and** updating `THIRD-PARTY-NOTICES.md`; the linux
+  CI job fails on an empty text file
 - `CHANGELOG.md` is written for users; add an entry per release tag
 
 ## Documentation References
