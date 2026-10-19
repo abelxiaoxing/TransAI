@@ -1,5 +1,8 @@
 #include <QFile>
 #include <QImage>
+#include <QQmlComponent>
+#include <QQmlContext>
+#include <QQmlEngine>
 #include <QSignalSpy>
 #include <QtTest>
 
@@ -25,6 +28,7 @@ class TestRapidOcr : public QObject
 
 private slots:
     void recognizesFromImage();
+    void recognizeIsCallableFromQml();
     void reportsMissingModelsAsUnavailable();
 
 private:
@@ -62,14 +66,81 @@ void TestRapidOcr::recognizesFromImage()
     QCOMPARE(recognizedSpy.count(), 1);
 
     const QString text = recognizedSpy.at(0).at(0).toString();
-    // Compare loosely on purpose: the recogniser drops spaces between words and
-    // PP-OCR's Latin dictionary confuses the glyph pair I/l ("TransAI" comes
-    // back as "TransAl"), which is a model property, not a pipeline bug.
+    // Compare loosely on purpose: PP-OCR's Latin dictionary confuses the glyph
+    // pair I/l ("TransAI" comes back as "TransAl"), which is a model property,
+    // not a pipeline bug, and the comparison must not depend on the exact
+    // spacing the space class (see decodeCtc) produces.
     QString compact = text.toLower();
     compact.remove(QLatin1Char(' '));
     QVERIFY2(compact.contains(QStringLiteral("trans")), qPrintable(text));
     QVERIFY2(compact.contains(QStringLiteral("ocr")), qPrintable(text));
     QVERIFY2(compact.contains(QStringLiteral("2024")), qPrintable(text));
+}
+
+void TestRapidOcr::recognizeIsCallableFromQml()
+{
+    std::unique_ptr<OcrEngine> engine = createRapidOcrEngine();
+    QVERIFY(engine);
+    if (!engine->isAvailable()) {
+        QSKIP(qPrintable(QStringLiteral("unavailable: %1 (run scripts/fetch_ocr_models.sh)")
+                             .arg(engine->unavailableReason())));
+    }
+
+    // The QML leg is the only caller of recognize() in the app, and it fails in
+    // a way no C++ test notices: calling a method that is not a slot /
+    // Q_INVOKABLE is *not* a hard error in QML, it just logs
+    // "TypeError: Property 'recognize' of object OcrEngine(...) is not a
+    // function" and returns undefined — the OCR leg then never emits a signal
+    // and the session hangs on "Recognizing text...". This drives the real
+    // engine through the real QML call path (including the QVariant -> QImage
+    // conversion) so the declaration in OcrEngine.h cannot regress.
+    QQmlEngine qml;
+    qml.rootContext()->setContextProperty(QStringLiteral("ocrEngine"), engine.get());
+
+    QQmlComponent component(&qml);
+    component.setData(R"qml(import QtQml
+
+QtObject {
+    property string recognizedText: ""
+    property string failure: ""
+    signal finished()
+
+    function run(image) {
+        ocrEngine.recognize(image)
+    }
+
+    Component.onCompleted: {
+        ocrEngine.recognized.connect(function(text) {
+            recognizedText = text
+            finished()
+        })
+        ocrEngine.recognitionFailed.connect(function(message) {
+            failure = message
+            finished()
+        })
+    }
+}
+)qml",
+                     QUrl(QStringLiteral("qrc:/tst_rapidocr/harness.qml")));
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+
+    std::unique_ptr<QObject> harness(component.create());
+    QVERIFY2(harness, qPrintable(component.errorString()));
+
+    QSignalSpy finishedSpy(harness.get(), SIGNAL(finished()));
+    const bool invoked = QMetaObject::invokeMethod(harness.get(), "run",
+                                                   Q_ARG(QVariant, QVariant::fromValue(sample())));
+    QVERIFY(invoked);
+
+    QTRY_VERIFY_WITH_TIMEOUT(finishedSpy.count() >= 1, 30000);
+    QCOMPARE(harness->property("failure").toString(), QString());
+
+    // Same loose comparison as recognizesFromImage(): the model confuses I/l and
+    // the exact spacing depends on the space class.
+    QString compact = harness->property("recognizedText").toString().toLower();
+    compact.remove(QLatin1Char(' '));
+    QVERIFY2(compact.contains(QStringLiteral("trans")), qPrintable(compact));
+    QVERIFY2(compact.contains(QStringLiteral("ocr")), qPrintable(compact));
 }
 
 void TestRapidOcr::reportsMissingModelsAsUnavailable()

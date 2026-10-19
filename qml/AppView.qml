@@ -20,6 +20,12 @@ Item {
     property bool screenshotSession: false
     // OCR leg of a screenshot session is in flight (tesseract/Vision running).
     property bool ocrBusy: false
+    // Safety net for the OCR leg: the backend is a worker thread that cannot be
+    // interrupted, so an engine that never answers (crashed worker, or a
+    // QML/C++ signature mismatch that makes the call a no-op) used to leave the
+    // status pill on "Recognizing text..." until the user pressed Stop. Bounded
+    // at 20 s — a full-HD screenshot with a hundred lines needs ~4 s.
+    onOcrBusyChanged: ocrBusy ? ocrWatchdogTimer.start() : ocrWatchdogTimer.stop()
     // Set when the capture itself failed before any request was sent.
     property bool screenshotFailed: false
     // Request snapshot: captured when a translation starts, so the history
@@ -338,6 +344,22 @@ Item {
             if (root.pendingResultText !== result.text) {
                 result.text = root.pendingResultText
             }
+        }
+    }
+
+    // Gives up on an OCR leg that never reports back (see onOcrBusyChanged).
+    // cancel() only drops a late result, so the session has to be closed here.
+    Timer {
+        id: ocrWatchdogTimer
+        interval: 20000
+        repeat: false
+        onTriggered: {
+            if (!root.ocrBusy) {
+                return
+            }
+            ocrEngine.cancel()
+            root.ocrBusy = false
+            root.showScreenshotError("OCR timed out: no text was recognized")
         }
     }
 

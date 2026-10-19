@@ -124,7 +124,7 @@ if(TRANSAI_OCR_BACKEND_ACTIVE STREQUAL "ncnn")
     target_compile_definitions(tst_rapidocr PRIVATE
         TRANSAI_OCR_SOURCE_MODEL_DIR="${TRANSAI_OCR_MODEL_DIR}"
         TRANSAI_OCR_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
-    target_link_libraries(tst_rapidocr PRIVATE Qt6::Gui Qt6::Test Qt6::Concurrent ncnn)
+    target_link_libraries(tst_rapidocr PRIVATE Qt6::Gui Qt6::Quick Qt6::Test Qt6::Concurrent ncnn)
     add_test(NAME tst_rapidocr COMMAND tst_rapidocr)
 endif()
 

@@ -7,6 +7,20 @@ namespace OcrPostProcess {
 
 namespace {
 
+// CJK ideographs, kana and hangul: the scripts that do not separate words with
+// spaces (and that PP-OCR's Latin space handling does not apply to).
+bool isCjk(const QChar ch) {
+    const ushort c = ch.unicode();
+    return (c >= 0x3400 && c <= 0x9fff) || (c >= 0xf900 && c <= 0xfaff) || (c >= 0x3040 && c <= 0x30ff) ||
+           (c >= 0xac00 && c <= 0xd7af);
+}
+
+bool isLatinLetter(const QChar ch) {
+    const ushort c = ch.unicode();
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+           (c >= 0x00c0 && c <= 0x024f);  // Latin-1 supplement + extended
+}
+
 // Explicit stack instead of recursion: a full-screen score map is a big
 // component and deep recursion would blow the thread stack.
 void floodFill(const std::vector<unsigned char>& binary, const float* prob, std::vector<int>& labels, int width,
@@ -149,52 +163,127 @@ void scaleBoxes(std::vector<OcrTextBox>& boxes, float scaleX, float scaleY, int 
     boxes.swap(kept);
 }
 
-void orderForReading(std::vector<OcrTextBox>& boxes) {
-    if (boxes.size() < 2) {
-        return;
+std::vector<std::vector<OcrTextBox>> groupRows(const std::vector<OcrTextBox>& boxes) {
+    std::vector<std::vector<OcrTextBox>> rows;
+    if (boxes.empty()) {
+        return rows;
     }
 
     // Stable sort by vertical centre keeps the comparator a strict weak
     // ordering; the line grouping below then works on a monotonic sequence
     // (a naive "same line if overlapping" comparator would be intransitive).
-    std::stable_sort(boxes.begin(), boxes.end(),
-                     [](const OcrTextBox& a, const OcrTextBox& b) { return a.y + a.height / 2 < b.y + b.height / 2; });
+    std::vector<OcrTextBox> sorted = boxes;
+    std::stable_sort(sorted.begin(), sorted.end(), [](const OcrTextBox& a, const OcrTextBox& b) {
+        return a.y + a.height / 2 < b.y + b.height / 2;
+    });
 
-    std::vector<std::vector<OcrTextBox>> lines;
-    for (const OcrTextBox& box : boxes) {
+    for (const OcrTextBox& box : sorted) {
         bool placed = false;
-        if (!lines.empty()) {
-            auto& line = lines.back();
-            int top = line.front().y;
-            int bottom = line.front().y + line.front().height;
-            for (const OcrTextBox& member : line) {
+        if (!rows.empty()) {
+            auto& row = rows.back();
+            int top = row.front().y;
+            int bottom = row.front().y + row.front().height;
+            for (const OcrTextBox& member : row) {
                 top = std::min(top, member.y);
                 bottom = std::max(bottom, member.y + member.height);
             }
             const int overlap = std::min(bottom, box.y + box.height) - std::max(top, box.y);
             const int smallerHeight = std::min(bottom - top, box.height);
             if (overlap > 0 && overlap * 2 >= smallerHeight) {
-                line.push_back(box);
+                row.push_back(box);
                 placed = true;
             }
         }
         if (!placed) {
-            lines.push_back({box});
+            rows.push_back({box});
         }
     }
 
-    size_t total = 0;
-    for (const auto& line : lines) {
-        total += line.size();
+    for (auto& row : rows) {
+        std::stable_sort(row.begin(), row.end(),
+                         [](const OcrTextBox& a, const OcrTextBox& b) { return a.x < b.x; });
     }
-    boxes.clear();
-    boxes.reserve(total);
-    for (auto& line : lines) {
-        std::stable_sort(line.begin(), line.end(), [](const OcrTextBox& a, const OcrTextBox& b) { return a.x < b.x; });
-        for (const OcrTextBox& box : line) {
-            boxes.push_back(box);
+    return rows;
+}
+
+std::vector<OcrTextBox> mergeRowMembers(const std::vector<OcrTextBox>& row, float gapFactor) {
+    if (row.size() < 2) {
+        return row;
+    }
+
+    // Use the row's median height as the scale for "is this gap a word gap?":
+    // one stray tall/short box must not change the decision for the whole line.
+    std::vector<int> heights;
+    heights.reserve(row.size());
+    for (const OcrTextBox& box : row) {
+        heights.push_back(std::max(box.height, 1));
+    }
+    std::sort(heights.begin(), heights.end());
+    const double medianHeight = double(heights[heights.size() / 2]);
+    const double maxGap = std::max(1.0, medianHeight * double(gapFactor));
+
+    std::vector<OcrTextBox> merged;
+    for (const OcrTextBox& box : row) {
+        if (!merged.empty()) {
+            OcrTextBox& last = merged.back();
+            const int gap = box.x - (last.x + last.width);
+            if (gap <= maxGap) {
+                // Union of the two boxes: the row keeps its own y/height range,
+                // which is what the recogniser wants as a single line crop.
+                const int right = std::max(last.x + last.width, box.x + box.width);
+                const int bottom = std::max(last.y + last.height, box.y + box.height);
+                last.x = std::min(last.x, box.x);
+                last.y = std::min(last.y, box.y);
+                last.width = right - last.x;
+                last.height = bottom - last.y;
+                last.score = std::max(last.score, box.score);
+                continue;
+            }
         }
+        merged.push_back(box);
     }
+    return merged;
+}
+
+QString joinRowTexts(const QStringList& parts) {
+    QString joined;
+    for (const QString& part : parts) {
+        const QString trimmed = part.trimmed();
+        if (trimmed.isEmpty()) {
+            continue;
+        }
+        if (joined.isEmpty()) {
+            joined = trimmed;
+            continue;
+        }
+        // No space when both sides are CJK ("第一段" + "第二段" reads wrong with
+        // one); everywhere else the parts were separate boxes on one visual row,
+        // so a space is the closest thing to the gap the user sees.
+        const bool noSpace = isCjk(joined.back()) && isCjk(trimmed.front());
+        if (!noSpace) {
+            joined += QLatin1Char(' ');
+        }
+        joined += trimmed;
+    }
+    return joined;
+}
+
+QString normalizeSpacing(const QString& text) {
+    QString out;
+    out.reserve(text.size() + 8);
+    for (int i = 0; i < text.size(); ++i) {
+        const QChar current = text.at(i);
+        if (!out.isEmpty()) {
+            const QChar previous = out.back();
+            const bool boundary = (isCjk(previous) && isLatinLetter(current)) ||
+                                  (isLatinLetter(previous) && isCjk(current));
+            if (boundary) {
+                out += QLatin1Char(' ');
+            }
+        }
+        out += current;
+    }
+    return out;
 }
 
 CtcResult decodeCtc(const float* logits, int timesteps, int classes, const QStringList& keys, float minCharScore) {
@@ -203,6 +292,15 @@ CtcResult decodeCtc(const float* logits, int timesteps, int classes, const QStri
     if (!logits || timesteps <= 0 || classes <= 0 || keys.isEmpty()) {
         return result;
     }
+
+    // PP-OCR's classifier layout (use_space_char=True, which the bundled
+    // ppocr_keys_v1.txt model uses): class 0 is the CTC blank, classes 1..keys
+    // are the dictionary and the **last** class is the space. Its dictionary has
+    // no space entry, so dropping that class is what turned every English line
+    // into "ThescreenshotOCRpipelinedetects..."; the model does predict spaces,
+    // it just sits outside `keys`.
+    const bool hasSpaceClass = classes == int(keys.size()) + 2;
+    const int spaceIndex = int(keys.size()) + 1;
 
     QString text;
     double scoreSum = 0.0;
@@ -222,13 +320,17 @@ CtcResult decodeCtc(const float* logits, int timesteps, int classes, const QStri
 
         const bool repeated = t > 0 && bestIndex == lastIndex;
         lastIndex = bestIndex;
-        if (bestIndex == 0 || repeated || bestIndex > keys.size()) {
+        if (bestIndex == 0 || repeated) {
             continue;
+        }
+        const bool isSpace = hasSpaceClass && bestIndex == spaceIndex;
+        if (!isSpace && bestIndex > int(keys.size())) {
+            continue;  // unmapped class of an unexpected model
         }
         if (bestValue < minCharScore) {
             continue;
         }
-        text += keys[bestIndex - 1];
+        text += isSpace ? QStringLiteral(" ") : keys[bestIndex - 1];
         scoreSum += bestValue;
         ++emitted;
     }

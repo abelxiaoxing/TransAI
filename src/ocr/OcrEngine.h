@@ -38,7 +38,12 @@ public:
     // engine is available. The English text doubles as an I18n table key where
     // the message is fixed.
     virtual QString unavailableReason() const { return QString(); }
-    virtual void recognize(const QImage& image) = 0;
+    // Q_INVOKABLE because QML is the only caller (AppView's screenshot OCR
+    // leg). Without it QML can see the method but cannot call it: the call
+    // silently becomes "TypeError: Property 'recognize' ... is not a function",
+    // no signal ever arrives, and the status pill sits on "Recognizing text..."
+    // forever. tests/tst_rapidocr.cpp::recognizeIsCallableFromQml guards it.
+    Q_INVOKABLE virtual void recognize(const QImage& image) = 0;
     Q_INVOKABLE virtual void cancel() = 0;
 
 signals:

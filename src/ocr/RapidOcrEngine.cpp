@@ -233,7 +233,6 @@ private:
         std::vector<OcrPostProcess::OcrTextBox> boxes =
             OcrPostProcess::boxesFromProbabilityMap(static_cast<const float*>(scoreMap.data), scoreMap.w, scoreMap.h);
         OcrPostProcess::scaleBoxes(boxes, scaleX, scaleY, sourceWidth, sourceHeight);
-        OcrPostProcess::orderForReading(boxes);
 
         if (boxes.empty()) {
             result.text = QString();
@@ -241,17 +240,12 @@ private:
         }
 
         // --- recognition -----------------------------------------------
-        QStringList lines;
-        lines.reserve(int(boxes.size()));
-        for (const OcrPostProcess::OcrTextBox& box : boxes) {
-            if (box.height < kMinCropHeight) {
-                continue;
-            }
-            const QImage crop = source.copy(box.x, box.y, box.width, box.height);
-            if (crop.isNull() || crop.height() <= 0) {
-                continue;
-            }
-
+        // Recognition runs once per *visual row*, not per detected box. The
+        // detector splits one line of text at wide gaps (a settings row's
+        // "Language" and "English" are two boxes, so are "[Cancel]" and
+        // "[Save]"); emitting one output line per box turned a 9-row dialog into
+        // 17 lines and sent that wall of newlines to the translator.
+        auto recognizeCrop = [this](const QImage& crop) {
             int recWidth = int(std::lround(double(kRecHeight) * double(crop.width()) / double(crop.height())));
             recWidth = std::clamp(recWidth, 1, kMaxRecWidth);
 
@@ -259,7 +253,7 @@ private:
                 ncnn::Mat::from_pixels_resize(crop.constBits(), ncnn::Mat::PIXEL_BGRA2BGR, crop.width(), crop.height(),
                                               int(crop.bytesPerLine()), recWidth, kRecHeight);
             if (recInput.empty()) {
-                continue;
+                return QString();
             }
             // PP-OCR recognition normalisation: (x/255 - 0.5) / 0.5.
             const float recMean[3] = {127.5f, 127.5f, 127.5f};
@@ -270,15 +264,37 @@ private:
             ncnn::Extractor extractor = m_nets->rec.create_extractor();
             extractor.input("input", recInput);
             if (extractor.extract("output", logits) != 0 || logits.empty()) {
-                continue;
+                return QString();
             }
 
             const OcrPostProcess::CtcResult decoded =
                 OcrPostProcess::decodeCtc(static_cast<const float*>(logits.data), logits.h, logits.w, m_keys);
             if (decoded.text.isEmpty() || decoded.score < kMinLineScore) {
-                continue;
+                return QString();
             }
-            lines << decoded.text;
+            return decoded.text;
+        };
+
+        QStringList lines;
+        for (const std::vector<OcrPostProcess::OcrTextBox>& row : OcrPostProcess::groupRows(boxes)) {
+            QStringList parts;
+            for (const OcrPostProcess::OcrTextBox& box : OcrPostProcess::mergeRowMembers(row)) {
+                if (box.height < kMinCropHeight) {
+                    continue;
+                }
+                const QImage crop = source.copy(box.x, box.y, box.width, box.height);
+                if (crop.isNull() || crop.height() <= 0) {
+                    continue;
+                }
+                const QString text = recognizeCrop(crop);
+                if (!text.isEmpty()) {
+                    parts << text;
+                }
+            }
+            const QString line = OcrPostProcess::normalizeSpacing(OcrPostProcess::joinRowTexts(parts));
+            if (!line.trimmed().isEmpty()) {
+                lines << line;
+            }
         }
 
         result.text = OcrPostProcess::joinLines(lines);

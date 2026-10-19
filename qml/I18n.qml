@@ -98,6 +98,7 @@ QtObject {
         "MODE": "模式",
         "Vision model": "视觉模型",
         "Recognizing text...": "正在识别文字…",
+        "OCR timed out: no text was recognized": "OCR 超时：未能识别出文字",
         "No text recognized in the screenshot": "截图中没有识别到文字",
         "OCR is not available on this system: the tesseract command was not found": "OCR 不可用：系统中未找到 tesseract 命令",
         "OCR is not available: the bundled OCR models are missing": "OCR 不可用：内置 OCR 模型文件缺失",

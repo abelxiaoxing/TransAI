@@ -22,8 +22,12 @@ private slots:
     void dropsSpecks();
     void keepsSeparateRegions();
     void scaleBoxesClipsToImage();
-    void ordersBoxesForReading();
+    void groupsRowsOfOneVisualLine();
+    void mergeRowMembersJoinsWordGapsOnly();
+    void joinRowTextsSpacesAndCjk();
+    void normalizeSpacingInsertsScriptBoundary();
     void decodesCtcGreedy();
+    void decodesCtcEmitsSpaceClass();
     void decodesCtcRespectsMinimumScore();
     void parsesDictionary();
     void joinsLinesSkipsEmpty();
@@ -113,19 +117,78 @@ void TestOcrPostProcess::scaleBoxesClipsToImage() {
     QCOMPARE(boxes.front().height, 10);
 }
 
-void TestOcrPostProcess::ordersBoxesForReading() {
-    // Three boxes on two lines, supplied deliberately out of order.
-    std::vector<OcrPostProcess::OcrTextBox> boxes = {
-        {200, 10, 80, 20, 0.9f},  // line 1, right
-        {100, 60, 80, 20, 0.9f},  // line 2
-        {10, 12, 80, 18, 0.9f},   // line 1, left
+void TestOcrPostProcess::groupsRowsOfOneVisualLine() {
+    // A settings-dialog row: label and value, same visual line, big column gap,
+    // plus a second row below. The detector reports three boxes on one line and
+    // one below; groupRows must report two rows, members left to right.
+    const std::vector<OcrPostProcess::OcrTextBox> boxes = {
+        {300, 78, 80, 26, 0.9f},   // row 1, value
+        {36, 76, 98, 29, 0.9f},    // row 1, label
+        {36, 108, 120, 25, 0.9f},  // row 2
     };
-    OcrPostProcess::orderForReading(boxes);
 
-    QCOMPARE(boxes.size(), size_t(3));
-    QCOMPARE(boxes[0].x, 10);
-    QCOMPARE(boxes[1].x, 200);
-    QCOMPARE(boxes[2].x, 100);
+    const auto rows = OcrPostProcess::groupRows(boxes);
+    QCOMPARE(rows.size(), size_t(2));
+    QCOMPARE(rows[0].size(), size_t(2));
+    QCOMPARE(rows[0][0].x, 36);   // sorted left to right
+    QCOMPARE(rows[0][1].x, 300);
+    QCOMPARE(rows[1].size(), size_t(1));
+    QCOMPARE(rows[1][0].y, 108);
+}
+
+void TestOcrPostProcess::mergeRowMembersJoinsWordGapsOnly() {
+    // One line of prose the detector split at a wide word gap (gap 10 px on a
+    // 24 px line) must become a single crop; a two-column row (gap 200 px) must
+    // stay two crops and be joined as text afterwards.
+    const std::vector<OcrPostProcess::OcrTextBox> prose = {
+        {10, 40, 200, 24, 0.9f},
+        {220, 41, 180, 23, 0.9f},  // gap 10 <= 0.5 * 24
+    };
+    const auto merged = OcrPostProcess::mergeRowMembers(prose);
+    QCOMPARE(merged.size(), size_t(1));
+    QCOMPARE(merged[0].x, 10);
+    QCOMPARE(merged[0].width, 390);
+    QCOMPARE(merged[0].y, 40);
+    QCOMPARE(merged[0].height, 24);
+
+    const std::vector<OcrPostProcess::OcrTextBox> columns = {
+        {36, 76, 98, 29, 0.9f},
+        {300, 78, 80, 26, 0.9f},  // gap 166 >> 0.5 * 29
+    };
+    QCOMPARE(OcrPostProcess::mergeRowMembers(columns).size(), size_t(2));
+
+    // A single-box row is returned unchanged.
+    const std::vector<OcrPostProcess::OcrTextBox> single = {{5, 5, 50, 20, 0.9f}};
+    QCOMPARE(OcrPostProcess::mergeRowMembers(single).size(), size_t(1));
+    QCOMPARE(OcrPostProcess::mergeRowMembers({}).size(), size_t(0));
+}
+
+void TestOcrPostProcess::joinRowTextsSpacesAndCjk() {
+    QCOMPARE(OcrPostProcess::joinRowTexts({QStringLiteral("Language"), QStringLiteral("English")}),
+             QStringLiteral("Language English"));
+    QCOMPARE(OcrPostProcess::joinRowTexts({QStringLiteral("[Cancel]"), QStringLiteral("[Save]")}),
+             QStringLiteral("[Cancel] [Save]"));
+    // No space between two CJK parts.
+    QCOMPARE(OcrPostProcess::joinRowTexts({QStringLiteral("第一段"), QStringLiteral("第二段")}),
+             QStringLiteral("第一段第二段"));
+    // Empty and whitespace-only parts are dropped instead of producing "  ".
+    QCOMPARE(OcrPostProcess::joinRowTexts({QStringLiteral("a"), QStringLiteral("   "), QStringLiteral("b")}),
+             QStringLiteral("a b"));
+    QCOMPARE(OcrPostProcess::joinRowTexts({}), QString());
+}
+
+void TestOcrPostProcess::normalizeSpacingInsertsScriptBoundary() {
+    // PP-OCR never emits the space between scripts; restore exactly that one.
+    QCOMPARE(OcrPostProcess::normalizeSpacing(QStringLiteral("再按PaddleOCR的")),
+             QStringLiteral("再按 PaddleOCR 的"));
+    // Digits are not a script boundary for Chinese typography.
+    QCOMPARE(OcrPostProcess::normalizeSpacing(QStringLiteral("2024年上线")), QStringLiteral("2024年上线"));
+    QCOMPARE(OcrPostProcess::normalizeSpacing(QStringLiteral("第3章")), QStringLiteral("第3章"));
+    // Already correct text is untouched (no double space, nothing inside a script).
+    QCOMPARE(OcrPostProcess::normalizeSpacing(QStringLiteral("再按 PaddleOCR 的")),
+             QStringLiteral("再按 PaddleOCR 的"));
+    QCOMPARE(OcrPostProcess::normalizeSpacing(QStringLiteral("hello world")), QStringLiteral("hello world"));
+    QCOMPARE(OcrPostProcess::normalizeSpacing(QString()), QString());
 }
 
 void TestOcrPostProcess::decodesCtcGreedy() {
@@ -141,6 +204,38 @@ void TestOcrPostProcess::decodesCtcGreedy() {
     const auto result = OcrPostProcess::decodeCtc(logits.data(), 5, 4, keys);
     QCOMPARE(result.text, QStringLiteral("abc"));
     QVERIFY(result.score > 0.7f);
+}
+
+void TestOcrPostProcess::decodesCtcEmitsSpaceClass() {
+    // PP-OCR with use_space_char=True: classes = blank + keys + space. The space
+    // lives *outside* the dictionary (ppocr_keys_v1.txt has no space entry), so
+    // it used to be dropped and "the quick fox" came back as "thequickfox".
+    const QStringList keys = {QStringLiteral("t"), QStringLiteral("h"), QStringLiteral("e")};
+    const int classes = int(keys.size()) + 2;  // blank, t, h, e, space
+    auto row = [classes](int peak) {
+        std::vector<float> values(size_t(classes), 0.02f);
+        values[size_t(peak)] = 0.9f;
+        return values;
+    };
+    std::vector<float> logits;
+    for (int peak : {1, 1, 0, 3, 4, 4, 0}) {  // t, t(repeat), blank, e, space, space(repeat), blank
+        const std::vector<float> r = row(peak);
+        logits.insert(logits.end(), r.begin(), r.end());
+    }
+
+    const auto decoded = OcrPostProcess::decodeCtc(logits.data(), 7, classes, keys);
+    QCOMPARE(decoded.text, QStringLiteral("te "));
+
+    // Without the trailing space class (classes == keys + 1) nothing changes for
+    // the dictionary characters.
+    const int plainClasses = int(keys.size()) + 1;
+    std::vector<float> plain;
+    for (int peak : {1, 3}) {
+        std::vector<float> values(size_t(plainClasses), 0.02f);
+        values[size_t(peak)] = 0.9f;
+        plain.insert(plain.end(), values.begin(), values.end());
+    }
+    QCOMPARE(OcrPostProcess::decodeCtc(plain.data(), 2, plainClasses, keys).text, QStringLiteral("te"));
 }
 
 void TestOcrPostProcess::decodesCtcRespectsMinimumScore() {
