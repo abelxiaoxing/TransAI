@@ -27,6 +27,7 @@ QtObject {
 
         // Language card
         "Language": "语言",
+        "DISPLAY LANGUAGE": "界面语言",
 
         // AI provider card
         "AI Provider": "AI 服务",
@@ -40,17 +41,21 @@ QtObject {
 
         // Model card
         "Model": "模型",
+        "MODEL": "模型",
         "Scanning": "扫描中",
         "Refresh": "刷新",
         "Detect": "检测",
         "Select from the list, or type a name": "从列表中选择，或直接输入名称",
         "Type a model name, or detect from the server": "输入模型名称，或从服务器检测",
         "No matching models": "没有匹配的模型（可直接输入自定义名称）",
+        "Toggle model list": "展开或收起模型列表",
         "%1 models detected — pick one from the dropdown.": "已检测到 %1 个模型——请从下拉列表中选择。",
 
         // Hotkey card
         "Global Hotkey": "全局快捷键",
-        "Global hotkeys aren't available on Wayland. Instead, bind a shortcut in your desktop settings to run: TransAI --translate-selection": "Wayland 下无法注册全局快捷键。请在桌面环境的快捷键设置中绑定命令：TransAI --translate-selection",
+        "SELECTION": "划词",
+        "SCREENSHOT": "截图",
+        "Global hotkeys aren't available on Wayland. Bind shortcuts in your desktop settings to run these commands:": "Wayland 下无法注册全局快捷键。请在桌面环境的快捷键设置中绑定以下命令：",
         "Click to record a shortcut": "点击录制快捷键",
         "Unavailable on this platform": "当前平台不可用",
         "Press keys…": "请按下快捷键…",
@@ -69,8 +74,6 @@ QtObject {
         "VISION MODEL": "视觉模型",
         "Follow current model": "跟随当前模型",
         "This model may not support image input. Pick a vision-capable model above if screenshot translation fails.": "该模型可能不支持图片输入。如果截图翻译失败，请在上方选择一个视觉模型。",
-        "HOTKEY": "快捷键",
-        "On Wayland, bind a shortcut in your desktop settings to run: TransAI --translate-screenshot": "Wayland 下请在桌面环境的快捷键设置中绑定命令：TransAI --translate-screenshot",
         "Advanced": "高级",
         "MAX IMAGE WIDTH": "图片最大宽度",
         "JPEG QUALITY": "JPEG 质量",

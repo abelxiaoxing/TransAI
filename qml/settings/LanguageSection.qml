@@ -13,12 +13,15 @@ SectionCard {
     // restores, so this needs no ready-gate).
     signal languageActivated()
 
-    headerData: ThemedComboBox {
-        id: languageCombo
-        // parent is the card's headerArea (via the headerData alias).
-        width: parent ? parent.width : 0
-        // Language names always stay in their native language.
-        model: ["English", "简体中文"]
-        onActivated: section.languageActivated()
+    SettingsRow {
+        label: I18n.t("DISPLAY LANGUAGE")
+
+        ThemedComboBox {
+            id: languageCombo
+            width: parent.width
+            // Language names always stay in their native language.
+            model: ["English", "简体中文"]
+            onActivated: section.languageActivated()
+        }
     }
 }

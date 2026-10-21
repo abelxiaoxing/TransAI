@@ -112,6 +112,9 @@ SectionCard {
                 color: keyToggleArea.containsMouse ? section.accentHover : section.mutedForeground
                 font.pixelSize: section.fontSizeSmall
                 font.weight: Font.DemiBold
+                Accessible.role: Accessible.Button
+                Accessible.name: text
+                Accessible.onPressAction: keyToggleArea.clicked(null)
 
                 MouseArea {
                     id: keyToggleArea

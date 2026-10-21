@@ -2,10 +2,11 @@ import QtQuick
 import QtQuick.Controls
 import ".."
 
-// "Screenshot Translation" card: vision-model override combo, capability
-// warning, Wayland command hint, hotkey recorder and the advanced image
-// options. Extracted from SettingView.qml; persistence stays in SettingView
-// (edited/saveRequested signals, restore* functions).
+// "Screenshot Translation" card: routing mode combo, vision-model override
+// combo, capability warning and the advanced image options. Extracted from
+// SettingView.qml; persistence stays in SettingView (edited/saveRequested
+// signals, restore* functions). The screenshot hotkey lives in the Global
+// Hotkey card (HotkeySection) together with the selection hotkey.
 SectionCard {
     id: section
     title: I18n.t("Screenshot Translation")
@@ -15,9 +16,7 @@ SectionCard {
     readonly property color fieldColorFocus: ThemeColors.fieldColorFocus
     readonly property color borderColor: ThemeColors.border
     readonly property color borderActive: ThemeColors.borderActive
-    readonly property color infoText: ThemeColors.infoText
     readonly property color warningColor: ThemeColors.warningText
-    readonly property color errorColor: ThemeColors.error
     readonly property int fontSizeLabel: 13
     readonly property int fontSizeSmall: 14
     readonly property int fontSizeNormal: 15
@@ -33,21 +32,11 @@ SectionCard {
     property string currentModel: ""
     // Detected models from the Model card (combo entries).
     property var detector: null
-    property bool hotkeysSupported: true
-    property QtObject shortcutRegistrar: null
     property bool advancedExpanded: false
 
-    property alias shortcut: recorder.shortcut
-    // Action id this recorder binds (GlobalShortcutManager slot + conflict
-    // arbitration key). Same contract as the Global Hotkey card.
-    readonly property string actionId: "translateScreenshot"
-    // Last registration failure, aliased to the recorder so main.qml can write
-    // startup failures straight into the inline error line below.
-    property alias hotkeyError: recorder.errorText
-
-    // Debounced-save-worthy edits (hotkey, advanced number fields).
+    // Debounced-save-worthy edits (advanced number fields).
     signal edited()
-    // Immediate-save changes (vision model combo).
+    // Immediate-save changes (mode / vision model combos).
     signal saveRequested()
 
     // Vision-model combo entries: "follow current" first, then the stored
@@ -86,10 +75,6 @@ SectionCard {
     }
     function jpegQuality() {
         return jpegQualityInput.acceptableInput ? parseInt(jpegQualityInput.text) : -1
-    }
-
-    function releaseFocus() {
-        recorder.focus = false
     }
 
     SettingsRow {
@@ -149,84 +134,14 @@ SectionCard {
         lineHeight: 1.25
     }
 
-    Rectangle {
-        width: parent.width
-        visible: !section.hotkeysSupported
-        height: visible ? screenshotWaylandTip.implicitHeight + 18 : 0
-        radius: 10
-        color: Qt.alpha(section.infoText, 0.08)
-        border.width: 1
-        border.color: Qt.alpha(section.infoText, 0.25)
-
-        Text {
-            id: screenshotWaylandTip
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.leftMargin: 10
-            anchors.rightMargin: 10
-            text: I18n.t("On Wayland, bind a shortcut in your desktop settings to run: TransAI --translate-screenshot")
-            color: section.infoText
-            font.pixelSize: section.fontSizeLabel
-            wrapMode: Text.WordWrap
-            lineHeight: 1.25
-        }
-    }
-
-    // Lets the user copy the exact CLI command into their compositor hotkey
-    // config (Wayland has no in-app hotkeys).
-    Text {
-        visible: !section.hotkeysSupported
-        text: screenshotCopyFeedback.running ? I18n.t("Copied ✓") : I18n.t("Copy command")
-        color: screenshotCopyFeedback.running ? section.accent
-             : (screenshotCopyArea.containsMouse ? section.accentHover : section.mutedForeground)
-        font.pixelSize: section.fontSizeLabel
-        font.weight: Font.DemiBold
-        MouseArea {
-            id: screenshotCopyArea
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: {
-                clipboard.setText("TransAI --translate-screenshot")
-                screenshotCopyFeedback.restart()
-            }
-        }
-        Timer {
-            id: screenshotCopyFeedback
-            interval: 1500
-        }
-    }
-
-    SettingsRow {
-        label: I18n.t("HOTKEY")
-
-        ShortcutRecorder {
-            id: recorder
-            width: parent.width
-            actionId: section.actionId
-            registrar: section.shortcutRegistrar
-            hotkeysSupported: section.hotkeysSupported
-            onEdited: section.edited()
-        }
-    }
-
-    Text {
-        width: parent.width
-        visible: section.hotkeyError.length > 0
-        // Fixed English reasons from C++ translate through the I18n table.
-        text: I18n.t(section.hotkeyError)
-        color: section.errorColor
-        font.pixelSize: section.fontSizeLabel
-        wrapMode: Text.WordWrap
-        lineHeight: 1.25
-    }
-
     Text {
         text: (section.advancedExpanded ? "▾ " : "▸ ") + I18n.t("Advanced")
         color: advancedToggleArea.containsMouse ? section.accentHover : section.mutedForeground
         font.pixelSize: section.fontSizeSmall
         font.weight: Font.DemiBold
+        Accessible.role: Accessible.Button
+        Accessible.name: I18n.t("Advanced")
+        Accessible.onPressAction: advancedToggleArea.clicked(null)
 
         MouseArea {
             id: advancedToggleArea

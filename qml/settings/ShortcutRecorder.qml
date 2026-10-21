@@ -84,6 +84,10 @@ Rectangle {
     border.color: activeFocus ? borderActive : borderColor
     opacity: hotkeysSupported ? 1.0 : 0.5
 
+    Accessible.role: Accessible.Button
+    Accessible.name: recorder.shortcut.length > 0 ? recorder.shortcut : I18n.t("Click to record a shortcut")
+    Accessible.onPressAction: if (recorder.hotkeysSupported) { recorder.forceActiveFocus() }
+
     onActiveFocusChanged: {
         if (activeFocus) {
             beforeRecording = shortcut
@@ -213,6 +217,9 @@ Rectangle {
         text: "✕"
         color: recorderClearArea.containsMouse ? recorder.error : recorder.mutedForeground
         font.pixelSize: recorder.fontSizeNormal
+        Accessible.role: Accessible.Button
+        Accessible.name: I18n.t("Clear")
+        Accessible.onPressAction: recorderClearArea.clicked(null)
 
         MouseArea {
             id: recorderClearArea

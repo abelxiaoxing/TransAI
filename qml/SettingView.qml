@@ -24,8 +24,9 @@ Item {
     // main.qml writes here when a hotkey registration fails outside a
     // recording session; the Hotkey card displays it inline.
     property alias hotkeyError: hotkeySection.hotkeyError
-    // Same contract for the screenshot hotkey (action id "translateScreenshot").
-    property alias screenshotHotkeyError: screenshotSection.hotkeyError
+    // Same contract for the screenshot hotkey (action id "translateScreenshot");
+    // both recorders live in the Global Hotkey card.
+    property alias screenshotHotkeyError: hotkeySection.screenshotHotkeyError
     property QtObject shortcutRegistrar: null
     // Bound from main.qml (GlobalShortcutManager.hotkeysSupported). False on
     // Wayland/headless, where the recorder is replaced by an explanation.
@@ -104,12 +105,12 @@ Item {
         // （重复推导曾导致两处逻辑漂移的风险）。
         applyProviderSettings(selectedProvider)
         hotkeySection.shortcut = setting.shortCut
+        hotkeySection.screenshotShortcut = setting.screenshotShortCut
         languageSection.languageIndex = displayLanguageIndex(setting.displayLanguage)
 
         // Screenshot translation card backfill.
         screenshotSection.restoreMode(setting.screenshotTranslateMode)
         screenshotSection.restoreVisionModel(setting.screenshotVisionModel)
-        screenshotSection.shortcut = setting.screenshotShortCut
         screenshotSection.restoreAdvanced(setting.screenshotMaxImageWidth, setting.screenshotJpegQuality)
 
         ready = true
@@ -134,12 +135,12 @@ Item {
             setting.openaiModel = selectedModel.trim().length > 0 ? selectedModel.trim() : defaultOpenAiModel
         }
         setting.shortCut = hotkeySection.shortcut
+        setting.screenshotShortCut = hotkeySection.screenshotShortcut
         setting.displayLanguage = displayLanguageFromIndex(languageSection.languageIndex)
-        // Screenshot translation. The routing mode (auto/vision/ocr) and the
-        // vision model override, hotkey and advanced image options.
+        // Screenshot translation. The routing mode (auto/vision/ocr), the
+        // vision model override and the advanced image options.
         setting.screenshotTranslateMode = screenshotSection.translateMode
         setting.screenshotVisionModel = screenshotSection.selectedVisionModel.trim()
-        setting.screenshotShortCut = screenshotSection.shortcut
         if (screenshotSection.maxImageWidth() > 0) {
             setting.screenshotMaxImageWidth = screenshotSection.maxImageWidth()
         }
@@ -199,7 +200,6 @@ Item {
         anchors.fill: parent
         onClicked: {
             hotkeySection.releaseFocus()
-            screenshotSection.releaseFocus()
             hotkeySection.reapplyShortcut()
         }
     }
@@ -336,21 +336,19 @@ Item {
                 onDetectRequested: detectModels()
             }
 
-            ScreenshotSection {
-                id: screenshotSection
-                detector: modelSection.detector
-                currentModel: root.selectedModel
-                hotkeysSupported: root.hotkeysSupported
-                shortcutRegistrar: root.shortcutRegistrar
-                onEdited: saveConfigSoon()
-                onSaveRequested: saveConfig()
-            }
-
             HotkeySection {
                 id: hotkeySection
                 hotkeysSupported: root.hotkeysSupported
                 shortcutRegistrar: root.shortcutRegistrar
                 onEdited: saveConfigSoon()
+            }
+
+            ScreenshotSection {
+                id: screenshotSection
+                detector: modelSection.detector
+                currentModel: root.selectedModel
+                onEdited: saveConfigSoon()
+                onSaveRequested: saveConfig()
             }
 
         }

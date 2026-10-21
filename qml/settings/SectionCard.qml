@@ -36,8 +36,6 @@ Rectangle {
     }
 
     default property alias contentData: bodyColumn.data
-    // 标题行右侧的内联控件槽（选项框/输入框等），与标题同行
-    property alias headerData: headerArea.data
     property string title: ""
 
     Column {
@@ -51,7 +49,9 @@ Rectangle {
         Item {
             id: cardHeader
             width: parent.width
-            height: Math.max(18, titleText.implicitHeight, headerArea.childrenRect.height)
+            // 标题行只放标题：所有控件都走 SettingsRow（左侧大写标签 + 控件列），
+            // 不再有标题行右侧的内联控件槽。
+            height: Math.max(18, titleText.implicitHeight)
 
             Rectangle {
                 width: 3
@@ -74,15 +74,6 @@ Rectangle {
                 color: card.foreground
                 font.pixelSize: card.fontSizeLarge
                 font.weight: Font.DemiBold
-            }
-
-            Item {
-                id: headerArea
-                anchors.left: parent.left
-                anchors.leftMargin: Math.max(card.fieldColumnX, titleText.implicitWidth + 27)
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                height: childrenRect.height
             }
         }
 
